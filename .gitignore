@@ -1,0 +1,117 @@
+# .NET, IDEs, and build output
+[Bb]in/
+[Oo]bj/
+.vs/
+.idea/
+.vscode/
+*.user
+*.rsuser
+*.suo
+*.userosscache
+*.sln.docstates
+*.sln.iml
+artifacts/
+publish/
+installer/output/
+setup/output/
+AGENTS.md
+# Repository-local tooling and caches
+.local/
+.nuget/
+packages/
+
+# Tests, coverage, logs, and diagnostics
+TestResults/
+test-results/
+coverage/
+coverage.xml
+*.coverage
+*.coveragexml
+[Ll]og/
+[Ll]ogs/
+*.log
+*.dmp
+*.dump
+*.diagsession
+*.psess
+*.vsp
+*.vspx
+
+# Python and virtual environments
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+secrets.json
+appsettings.Local.json
+appsettings.Development.local.json
+appsettings.Secrets.json
+*.key
+*.pem
+*.pfx
+*.p12
+
+# Local databases and journals
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+
+# User workspaces, chapters, and generated media
+data/
+/projects/
+workspace/
+downloads/
+exports/
+chapters/
+series/
+*_raw/
+*_esp/
+translated/
+generated/
+processed/
+rendered/
+cache/
+temp/
+tmp/
+
+# AI and OCR model data
+models/
+weights/
+checkpoints/
+*.onnx
+*.pt
+*.pth
+*.bin
+*.safetensors
+.paddleocr/
+.paddlex/
+.huggingface/
+huggingface/
+
+# Browser tooling output
+.playwright/
+playwright-report/
+
+# Temporary and operating system files
+*.tmp
+*.temp
+*.bak
+.DS_Store
+Thumbs.db
+Desktop.ini
