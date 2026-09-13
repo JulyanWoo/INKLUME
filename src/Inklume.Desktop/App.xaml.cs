@@ -1,9 +1,11 @@
 using System.ComponentModel;
 using System.Windows;
+using Inklume.Application.Chapters;
 using Inklume.Application.Projects;
 using Inklume.Desktop.Services;
 using Inklume.Desktop.ViewModels;
 using Inklume.Desktop.Views;
+using Inklume.Infrastructure.Chapters;
 using Inklume.Infrastructure.Projects;
 
 namespace Inklume.Desktop;
@@ -18,7 +20,13 @@ public partial class App : System.Windows.Application
         base.OnStartup(e);
 
         var projectService = new ProjectService(new FileSystemProjectStore(), TimeProvider.System);
-        _mainViewModel = new MainViewModel(projectService, new WindowsProjectFolderPicker());
+        var chapterService = new ChapterService(new FileSystemChapterStore(), TimeProvider.System);
+        _mainViewModel = new MainViewModel(
+            projectService,
+            chapterService,
+            new LocalFolderChapterSourceProvider(),
+            new WindowsProjectFolderPicker(),
+            new WpfPagePreviewLoader());
         MainWindow = new MainWindow(_mainViewModel);
         MainWindow.Closing += OnMainWindowClosing;
         MainWindow.Show();

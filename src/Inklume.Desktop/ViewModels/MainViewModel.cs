@@ -1,6 +1,9 @@
+using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Inklume.Application.Chapters;
 using Inklume.Application.Projects;
 using Inklume.Desktop.Services;
 
@@ -9,175 +12,240 @@ namespace Inklume.Desktop.ViewModels;
 public sealed partial class MainViewModel : ObservableObject
 {
     private readonly ProjectService _projectService;
-    private readonly IProjectFolderPicker _folderPicker;
+    private readonly ChapterService _chapterService;
+    private readonly ILocalChapterSourceProvider _localChapterSourceProvider;
+    private readonly IProjectDialogService _dialogService;
+    private readonly IPagePreviewLoader _previewLoader;
     private CancellationTokenSource? _operationCancellation;
     private bool _isClosing;
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(CreateProjectCommand))]
-    private string _projectName = string.Empty;
+    [NotifyPropertyChangedFor(nameof(IsHomeVisible))]
+    [NotifyPropertyChangedFor(nameof(IsWorkspaceVisible))]
+    [NotifyPropertyChangedFor(nameof(CurrentStatusMessage))]
+    [NotifyPropertyChangedFor(nameof(CurrentProgressMessage))]
+    [NotifyPropertyChangedFor(nameof(CurrentWarningMessage))]
+    [NotifyPropertyChangedFor(nameof(CurrentErrorMessage))]
+    [NotifyPropertyChangedFor(nameof(IsBusy))]
+    [NotifyPropertyChangedFor(nameof(IsCancellationAvailable))]
+    [NotifyCanExecuteChangedFor(nameof(CloseProjectCommand))]
+    private WorkspaceViewModel? _workspace;
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(CreateProjectCommand))]
-    private string _seriesName = string.Empty;
-
-    [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(CreateProjectCommand))]
-    private string _projectFolder = string.Empty;
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsIdle))]
-    [NotifyCanExecuteChangedFor(nameof(CreateProjectCommand))]
+    [NotifyPropertyChangedFor(nameof(IsBusy))]
+    [NotifyPropertyChangedFor(nameof(IsCancellationAvailable))]
+    [NotifyPropertyChangedFor(nameof(CurrentStatusMessage))]
+    [NotifyCanExecuteChangedFor(nameof(NewProjectCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenProjectCommand))]
-    [NotifyCanExecuteChangedFor(nameof(BrowseProjectFolderCommand))]
-    [NotifyCanExecuteChangedFor(nameof(CancelOperationCommand))]
-    private bool _isBusy;
+    [NotifyCanExecuteChangedFor(nameof(OpenRecentProjectCommand))]
+    private bool _isShellBusy;
 
     [ObservableProperty]
-    private ProjectWorkspace? _currentWorkspace;
-
-    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CurrentStatusMessage))]
     private string _statusMessage = "Ready.";
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CurrentErrorMessage))]
     private string _errorMessage = string.Empty;
 
-    public MainViewModel(ProjectService projectService, IProjectFolderPicker folderPicker)
+    public MainViewModel(
+        ProjectService projectService,
+        ChapterService chapterService,
+        ILocalChapterSourceProvider localChapterSourceProvider,
+        IProjectDialogService dialogService,
+        IPagePreviewLoader previewLoader)
     {
         ArgumentNullException.ThrowIfNull(projectService);
-        ArgumentNullException.ThrowIfNull(folderPicker);
+        ArgumentNullException.ThrowIfNull(chapterService);
+        ArgumentNullException.ThrowIfNull(localChapterSourceProvider);
+        ArgumentNullException.ThrowIfNull(dialogService);
+        ArgumentNullException.ThrowIfNull(previewLoader);
         _projectService = projectService;
-        _folderPicker = folderPicker;
+        _chapterService = chapterService;
+        _localChapterSourceProvider = localChapterSourceProvider;
+        _dialogService = dialogService;
+        _previewLoader = previewLoader;
 
-        CreateProjectCommand = new AsyncRelayCommand(CreateProjectAsync, CanCreateProject);
-        OpenProjectCommand = new AsyncRelayCommand(OpenProjectAsync, CanBeginOperation);
-        BrowseProjectFolderCommand = new RelayCommand(BrowseProjectFolder, CanBeginOperation);
-        CancelOperationCommand = new RelayCommand(CancelOperation, CanCancelOperation);
+        NewProjectCommand = new AsyncRelayCommand(NewProjectAsync, CanBeginProjectOperation);
+        OpenProjectCommand = new AsyncRelayCommand(OpenProjectAsync, CanBeginProjectOperation);
+        OpenRecentProjectCommand = new AsyncRelayCommand<RecentProjectViewModel>(OpenRecentProjectAsync, CanOpenRecentProject);
+        CloseProjectCommand = new AsyncRelayCommand(CloseProjectAsync, () => Workspace is not null);
+        CancelOperationCommand = new RelayCommand(CancelOperation, () => IsCancellationAvailable);
+        ExitCommand = new RelayCommand(() => ExitRequested?.Invoke(this, EventArgs.Empty));
     }
+
+    public event EventHandler? ExitRequested;
 
     public string ApplicationName { get; } = "INKLUME";
 
     public string Subtitle { get; } = "AI Comic Localization Studio";
 
-    public string WorkspaceMessage { get; } = "No project is open in this workspace.";
+    public bool IsHomeVisible => Workspace is null;
 
-    public bool IsIdle => !IsBusy && !_isClosing;
+    public bool IsWorkspaceVisible => Workspace is not null;
 
-    public IAsyncRelayCommand CreateProjectCommand { get; }
+    public bool HasRecentProjects => RecentProjects.Count > 0;
+
+    public bool IsBusy => IsShellBusy || Workspace?.IsBusy == true;
+
+    public bool IsCancellationAvailable => (_operationCancellation is { IsCancellationRequested: false })
+        || Workspace?.IsCancellationAvailable == true;
+
+    public string CurrentStatusMessage => IsShellBusy ? StatusMessage : Workspace?.StatusMessage ?? StatusMessage;
+
+    public string CurrentProgressMessage => Workspace?.ProgressMessage ?? string.Empty;
+
+    public string CurrentWarningMessage => Workspace?.WarningMessage ?? string.Empty;
+
+    public string CurrentErrorMessage => Workspace?.ErrorMessage ?? ErrorMessage;
+
+    public ObservableCollection<RecentProjectViewModel> RecentProjects { get; } = [];
+
+    public IAsyncRelayCommand NewProjectCommand { get; }
 
     public IAsyncRelayCommand OpenProjectCommand { get; }
 
-    public IRelayCommand BrowseProjectFolderCommand { get; }
+    public IAsyncRelayCommand<RecentProjectViewModel> OpenRecentProjectCommand { get; }
+
+    public IAsyncRelayCommand CloseProjectCommand { get; }
 
     public IRelayCommand CancelOperationCommand { get; }
+
+    public IRelayCommand ExitCommand { get; }
 
     public async Task StopAsync()
     {
         _isClosing = true;
-        OnPropertyChanged(nameof(IsIdle));
-        CreateProjectCommand.NotifyCanExecuteChanged();
-        OpenProjectCommand.NotifyCanExecuteChanged();
-        BrowseProjectFolderCommand.NotifyCanExecuteChanged();
+        NotifyCommandStates();
         CancelOperation();
+        if (Workspace is { } workspace)
+        {
+            await workspace.StopAsync();
+        }
 
         await Task.WhenAll(
-            CreateProjectCommand.ExecutionTask ?? Task.CompletedTask,
-            OpenProjectCommand.ExecutionTask ?? Task.CompletedTask);
+            NewProjectCommand.ExecutionTask ?? Task.CompletedTask,
+            OpenProjectCommand.ExecutionTask ?? Task.CompletedTask,
+            OpenRecentProjectCommand.ExecutionTask ?? Task.CompletedTask,
+            CloseProjectCommand.ExecutionTask ?? Task.CompletedTask);
     }
 
-    private bool CanBeginOperation() => IsIdle;
-
-    private bool CanCreateProject() => IsIdle
-        && !string.IsNullOrWhiteSpace(ProjectName)
-        && !string.IsNullOrWhiteSpace(SeriesName)
-        && !string.IsNullOrWhiteSpace(ProjectFolder);
-
-    private bool CanCancelOperation() => IsBusy
-        && _operationCancellation is { IsCancellationRequested: false };
-
-    private void BrowseProjectFolder()
+    partial void OnWorkspaceChanging(WorkspaceViewModel? value)
     {
-        if (!CanBeginOperation())
+        if (Workspace is not null)
+        {
+            Workspace.PropertyChanged -= OnWorkspacePropertyChanged;
+        }
+    }
+
+    partial void OnWorkspaceChanged(WorkspaceViewModel? value)
+    {
+        if (value is not null)
+        {
+            value.PropertyChanged += OnWorkspacePropertyChanged;
+        }
+
+        NotifyShellStateChanged();
+    }
+
+    private bool CanBeginProjectOperation() => !_isClosing && !IsShellBusy && Workspace is null;
+
+    private bool CanOpenRecentProject(RecentProjectViewModel? project)
+        => project is not null && CanBeginProjectOperation();
+
+    private async Task NewProjectAsync()
+    {
+        CreateProjectRequest? request;
+        try
+        {
+            ErrorMessage = string.Empty;
+            request = _dialogService.ShowNewProjectDialog();
+        }
+        catch (Exception exception)
+        {
+            ReportUnexpectedError(exception, "The new project dialog could not be opened. Please try again.");
+            return;
+        }
+
+        if (request is null)
         {
             return;
         }
 
-        string? selectedFolder = PickFolder("Choose an empty folder for the new project");
-        if (selectedFolder is not null)
-        {
-            ProjectFolder = selectedFolder;
-        }
-    }
-
-    private Task CreateProjectAsync()
-    {
-        if (!CanCreateProject())
-        {
-            return Task.CompletedTask;
-        }
-
-        var request = new CreateProjectRequest(ProjectName, SeriesName, ProjectFolder);
-        return RunOperationAsync(
+        await RunProjectOperationAsync(
             token => _projectService.CreateAsync(request, token),
             "Creating project...",
-            "Project created and opened.");
+            "Project created.");
     }
 
     private async Task OpenProjectAsync()
     {
-        if (!CanBeginOperation())
+        string? selectedFolder;
+        try
         {
+            ErrorMessage = string.Empty;
+            selectedFolder = _dialogService.PickProjectFolder();
+        }
+        catch (Exception exception)
+        {
+            ReportUnexpectedError(exception, "The project folder picker could not be opened. Please try again.");
             return;
         }
 
-        string? selectedFolder = PickFolder("Open an INKLUME project folder");
         if (selectedFolder is null)
         {
             return;
         }
 
-        await RunOperationAsync(
+        await RunProjectOperationAsync(
             token => _projectService.OpenAsync(selectedFolder, token),
             "Opening project...",
             "Project opened.");
     }
 
-    private string? PickFolder(string title)
+    private Task OpenRecentProjectAsync(RecentProjectViewModel? project)
     {
-        try
+        if (project is null)
         {
-            ErrorMessage = string.Empty;
-            return _folderPicker.PickFolder(title);
+            return Task.CompletedTask;
         }
-        catch (Exception exception)
-        {
-            ReportUnexpectedError(exception, "The folder picker could not be opened. Please try again.");
-            return null;
-        }
+
+        return RunProjectOperationAsync(
+            token => _projectService.OpenAsync(project.RootPath, token),
+            "Opening project...",
+            "Project opened.");
     }
 
-    private async Task RunOperationAsync(
+    private async Task RunProjectOperationAsync(
         Func<CancellationToken, Task<ProjectWorkspace>> operation,
         string pendingMessage,
         string completedMessage)
     {
         using var cancellation = new CancellationTokenSource();
         _operationCancellation = cancellation;
-        IsBusy = true;
-        ErrorMessage = string.Empty;
+        IsShellBusy = true;
         StatusMessage = pendingMessage;
+        ErrorMessage = string.Empty;
+        NotifyShellStateChanged();
 
         try
         {
-            // SQLite's async APIs still perform synchronous I/O; keep that work off the dispatcher.
-            ProjectWorkspace workspace = await Task.Run(
+            ProjectWorkspace projectWorkspace = await Task.Run(
                 () => operation(cancellation.Token), cancellation.Token);
-            CurrentWorkspace = workspace;
+            var workspace = new WorkspaceViewModel(
+                projectWorkspace,
+                _chapterService,
+                _localChapterSourceProvider,
+                _dialogService,
+                _previewLoader);
+            await workspace.InitializeAsync(cancellation.Token);
+            AddRecentProject(projectWorkspace);
+            Workspace = workspace;
             StatusMessage = completedMessage;
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
-            StatusMessage = "Operation cancelled. Any files already created were preserved.";
+            StatusMessage = "Operation cancelled.";
         }
         catch (ProjectOperationException exception)
         {
@@ -198,25 +266,89 @@ public sealed partial class MainViewModel : ObservableObject
         finally
         {
             _operationCancellation = null;
-            IsBusy = false;
+            IsShellBusy = false;
+            NotifyShellStateChanged();
         }
     }
 
-    private void CancelOperation()
+    private async Task CloseProjectAsync()
     {
-        if (!CanCancelOperation())
+        WorkspaceViewModel? workspace = Workspace;
+        if (workspace is null)
         {
             return;
         }
 
-        StatusMessage = "Cancelling the project operation...";
+        StatusMessage = "Closing project...";
+        await workspace.StopAsync();
+        Workspace = null;
+        ErrorMessage = string.Empty;
+        StatusMessage = "Project closed.";
+    }
+
+    private void CancelOperation()
+    {
+        bool hadCancelableOperation = IsCancellationAvailable;
         _operationCancellation?.Cancel();
+        Workspace?.CancelOperationCommand.Execute(null);
+        if (hadCancelableOperation)
+        {
+            StatusMessage = "Cancelling operation...";
+        }
+
+        NotifyShellStateChanged();
+    }
+
+    private void AddRecentProject(ProjectWorkspace workspace)
+    {
+        RecentProjectViewModel? existing = RecentProjects.FirstOrDefault(project => project.ProjectId == workspace.Project.Id);
+        if (existing is not null)
+        {
+            RecentProjects.Remove(existing);
+        }
+
+        RecentProjects.Insert(0, RecentProjectViewModel.FromWorkspace(workspace, DateTimeOffset.Now));
+        OnPropertyChanged(nameof(HasRecentProjects));
+    }
+
+    private void OnWorkspacePropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(WorkspaceViewModel.StatusMessage)
+            or nameof(WorkspaceViewModel.ProgressMessage)
+            or nameof(WorkspaceViewModel.WarningMessage)
+            or nameof(WorkspaceViewModel.ErrorMessage)
+            or nameof(WorkspaceViewModel.IsBusy)
+            or nameof(WorkspaceViewModel.IsCancellationAvailable))
+        {
+            NotifyShellStateChanged();
+        }
+    }
+
+    private void NotifyShellStateChanged()
+    {
+        OnPropertyChanged(nameof(IsHomeVisible));
+        OnPropertyChanged(nameof(IsWorkspaceVisible));
+        OnPropertyChanged(nameof(IsBusy));
+        OnPropertyChanged(nameof(IsCancellationAvailable));
+        OnPropertyChanged(nameof(CurrentStatusMessage));
+        OnPropertyChanged(nameof(CurrentProgressMessage));
+        OnPropertyChanged(nameof(CurrentWarningMessage));
+        OnPropertyChanged(nameof(CurrentErrorMessage));
+        NotifyCommandStates();
+    }
+
+    private void NotifyCommandStates()
+    {
+        NewProjectCommand.NotifyCanExecuteChanged();
+        OpenProjectCommand.NotifyCanExecuteChanged();
+        OpenRecentProjectCommand.NotifyCanExecuteChanged();
+        CloseProjectCommand.NotifyCanExecuteChanged();
         CancelOperationCommand.NotifyCanExecuteChanged();
     }
 
     private void ReportUnexpectedError(Exception exception, string message)
     {
-        Trace.TraceError("Desktop project command failed: {0}", exception);
+        Trace.TraceError("Desktop shell command failed: {0}", exception);
         ErrorMessage = message;
         StatusMessage = "The project operation could not be completed.";
     }
