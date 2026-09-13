@@ -43,30 +43,10 @@ internal static class SqliteProjectPersistence
 
     internal static async Task<TranslationProject> ReadAsync(string databasePath, CancellationToken cancellationToken)
     {
+        await EnsureCurrentSchemaAsync(databasePath, cancellationToken);
         await using ProjectDbContext context = CreateContext(databasePath, readOnly: true);
         await OpenConnectionAsync(context, cancellationToken);
-        await using DbCommand identityCommand = context.Database.GetDbConnection().CreateCommand();
-        identityCommand.CommandText = "PRAGMA application_id;";
-        object? identity = await identityCommand.ExecuteScalarAsync(cancellationToken);
-        if (identity is not long applicationId || applicationId != ApplicationId)
-        {
-            throw new ProjectOperationException(ProjectErrorCode.InvalidProject,
-                "The database is not an INKLUME project database.");
-        }
-
-        string[] appliedMigrations = [.. (await context.Database.GetAppliedMigrationsAsync(cancellationToken))];
-        string[] expectedMigrations = [.. context.Database.GetMigrations()];
-        if (appliedMigrations.Length == 0)
-        {
-            throw new ProjectOperationException(ProjectErrorCode.InvalidProject,
-                "The database has no INKLUME migration history.");
-        }
-
-        if (!appliedMigrations.SequenceEqual(expectedMigrations, StringComparer.Ordinal))
-        {
-            throw new ProjectOperationException(ProjectErrorCode.IncompatibleVersion,
-                "The database schema is not supported by this version of INKLUME.");
-        }
+        await VerifyIdentityAsync(context, cancellationToken);
 
         List<ProjectMetadata> records = await context.Projects.AsNoTracking().Take(2).ToListAsync(cancellationToken);
         if (records.Count != 1)
@@ -94,13 +74,13 @@ internal static class SqliteProjectPersistence
         }
     }
 
-    private static async Task OpenConnectionAsync(ProjectDbContext context, CancellationToken cancellationToken)
+    internal static async Task OpenConnectionAsync(ProjectDbContext context, CancellationToken cancellationToken)
     {
         await context.Database.OpenConnectionAsync(cancellationToken);
         await context.Database.ExecuteSqlRawAsync("PRAGMA temp_store = MEMORY;", cancellationToken);
     }
 
-    private static ProjectDbContext CreateContext(string databasePath, bool readOnly)
+    internal static ProjectDbContext CreateContext(string databasePath, bool readOnly)
     {
         var connectionString = new SqliteConnectionStringBuilder
         {
@@ -112,5 +92,60 @@ internal static class SqliteProjectPersistence
             .UseSqlite(connectionString.ToString())
             .Options;
         return new ProjectDbContext(options);
+    }
+
+    private static async Task EnsureCurrentSchemaAsync(string databasePath, CancellationToken cancellationToken)
+    {
+        string[] appliedMigrations;
+        string[] expectedMigrations;
+        await using (ProjectDbContext probe = CreateContext(databasePath, readOnly: true))
+        {
+            await OpenConnectionAsync(probe, cancellationToken);
+            await VerifyIdentityAsync(probe, cancellationToken);
+            appliedMigrations = [.. (await probe.Database.GetAppliedMigrationsAsync(cancellationToken))];
+            expectedMigrations = [.. probe.Database.GetMigrations()];
+        }
+
+        if (appliedMigrations.Length == 0)
+        {
+            throw new ProjectOperationException(ProjectErrorCode.InvalidProject,
+                "The database has no INKLUME migration history.");
+        }
+
+        bool isKnownPrefix = appliedMigrations.Length <= expectedMigrations.Length
+            && appliedMigrations.SequenceEqual(expectedMigrations.Take(appliedMigrations.Length), StringComparer.Ordinal);
+        if (!isKnownPrefix)
+        {
+            throw new ProjectOperationException(ProjectErrorCode.IncompatibleVersion,
+                "The database schema is not supported by this version of INKLUME.");
+        }
+
+        if (appliedMigrations.Length < expectedMigrations.Length)
+        {
+            await using ProjectDbContext upgrade = CreateContext(databasePath, readOnly: false);
+            await OpenConnectionAsync(upgrade, cancellationToken);
+            await upgrade.Database.MigrateAsync(cancellationToken);
+        }
+
+        await using ProjectDbContext verification = CreateContext(databasePath, readOnly: true);
+        await OpenConnectionAsync(verification, cancellationToken);
+        string[] finalMigrations = [.. (await verification.Database.GetAppliedMigrationsAsync(cancellationToken))];
+        if (!finalMigrations.SequenceEqual(expectedMigrations, StringComparer.Ordinal))
+        {
+            throw new ProjectOperationException(ProjectErrorCode.IncompatibleVersion,
+                "The database schema is not supported by this version of INKLUME.");
+        }
+    }
+
+    private static async Task VerifyIdentityAsync(ProjectDbContext context, CancellationToken cancellationToken)
+    {
+        await using DbCommand identityCommand = context.Database.GetDbConnection().CreateCommand();
+        identityCommand.CommandText = "PRAGMA application_id;";
+        object? identity = await identityCommand.ExecuteScalarAsync(cancellationToken);
+        if (identity is not long applicationId || applicationId != ApplicationId)
+        {
+            throw new ProjectOperationException(ProjectErrorCode.InvalidProject,
+                "The database is not an INKLUME project database.");
+        }
     }
 }
