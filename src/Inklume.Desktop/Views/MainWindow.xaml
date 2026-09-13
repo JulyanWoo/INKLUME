@@ -1,0 +1,158 @@
+<Window x:Class="Inklume.Desktop.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="{Binding ApplicationName}"
+        Width="900"
+        Height="790"
+        MinWidth="680"
+        MinHeight="540"
+        WindowStartupLocation="CenterScreen"
+        Background="#F5F6F8"
+        FontFamily="Segoe UI">
+    <Window.Resources>
+        <Style TargetType="Button">
+            <Setter Property="Padding" Value="16,8" />
+            <Setter Property="MinHeight" Value="36" />
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Padding" Value="8,6" />
+            <Setter Property="FontSize" Value="14" />
+        </Style>
+    </Window.Resources>
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="40,28" MaxWidth="720">
+            <TextBlock Text="{Binding ApplicationName}"
+                       FontSize="40"
+                       FontWeight="SemiBold"
+                       Foreground="#18202F" />
+            <TextBlock Text="{Binding Subtitle}"
+                       Margin="0,4,0,24"
+                       FontSize="20"
+                       TextWrapping="Wrap"
+                       Foreground="#465367" />
+            <Border Padding="20"
+                    CornerRadius="8"
+                    Background="White"
+                    BorderBrush="#DCE1E8"
+                    BorderThickness="1">
+                <StackPanel>
+                    <TextBlock Text="New project" FontSize="20" FontWeight="SemiBold" Foreground="#18202F" />
+                    <Grid Margin="0,14,0,0" IsEnabled="{Binding IsIdle}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="16" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Label Content="Project _name" Target="{Binding ElementName=ProjectNameInput}" Padding="0,0,0,6" />
+                        <TextBox x:Name="ProjectNameInput" Grid.Row="1"
+                                 AutomationProperties.Name="Project name"
+                                 Text="{Binding ProjectName, UpdateSourceTrigger=PropertyChanged}" />
+                        <Label Grid.Column="2" Content="_Series name" Target="{Binding ElementName=SeriesNameInput}" Padding="0,0,0,6" />
+                        <TextBox x:Name="SeriesNameInput" Grid.Row="1" Grid.Column="2"
+                                 AutomationProperties.Name="Series name"
+                                 Text="{Binding SeriesName, UpdateSourceTrigger=PropertyChanged}" />
+                        <Label Grid.Row="2" Grid.ColumnSpan="3" Content="Project _folder"
+                               Target="{Binding ElementName=ProjectFolderInput}" Padding="0,14,0,6" />
+                        <DockPanel Grid.Row="3" Grid.ColumnSpan="3">
+                            <Button DockPanel.Dock="Right" Margin="8,0,0,0" Content="_Browse..."
+                                    Command="{Binding BrowseProjectFolderCommand}" />
+                            <TextBox x:Name="ProjectFolderInput" AutomationProperties.Name="Project folder"
+                                     Text="{Binding ProjectFolder, UpdateSourceTrigger=PropertyChanged}" />
+                        </DockPanel>
+                    </Grid>
+                    <TextBlock Margin="0,8,0,16" TextWrapping="Wrap" Foreground="#465367"
+                               Text="Choose an empty folder, or enter a new folder path. Project files are saved directly inside it." />
+                    <WrapPanel>
+                        <Button Content="_Create project" Command="{Binding CreateProjectCommand}" Margin="0,0,8,8" />
+                        <Button Content="_Open project..." Command="{Binding OpenProjectCommand}" Margin="0,0,8,8" />
+                        <Button Content="Cancel" Command="{Binding CancelOperationCommand}" Margin="0,0,0,8" />
+                    </WrapPanel>
+                </StackPanel>
+            </Border>
+
+            <ProgressBar Height="4" Margin="0,16,0,8" IsIndeterminate="True">
+                <ProgressBar.Style>
+                    <Style TargetType="ProgressBar">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsBusy}" Value="True">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ProgressBar.Style>
+            </ProgressBar>
+            <TextBlock Margin="0,12,0,0" Text="{Binding StatusMessage}" TextWrapping="Wrap"
+                       AutomationProperties.Name="Project operation status" Foreground="#465367" />
+            <Border Padding="12" Margin="0,12,0,0" Background="#FFF0F0" BorderBrush="#DBA7A7" BorderThickness="1" CornerRadius="4">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding ErrorMessage}" Value="">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <TextBlock Text="{Binding ErrorMessage}" TextWrapping="Wrap" Foreground="#842B2B"
+                           AutomationProperties.Name="Project error" />
+            </Border>
+
+            <Border Padding="20" Margin="0,20,0,0" CornerRadius="8" Background="White" BorderBrush="#DCE1E8" BorderThickness="1">
+                <StackPanel>
+                    <TextBlock Text="Current project" FontSize="20" FontWeight="SemiBold" Foreground="#18202F" />
+                    <TextBlock Text="{Binding WorkspaceMessage}" Margin="0,12,0,0" TextWrapping="Wrap" Foreground="#465367">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding CurrentWorkspace}" Value="{x:Null}">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                    <Grid Margin="0,12,0,0">
+                        <Grid.Style>
+                            <Style TargetType="Grid">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding CurrentWorkspace}" Value="{x:Null}">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Grid.Style>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="120" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="Project" Margin="0,0,12,8" />
+                        <TextBlock Grid.Column="1" Text="{Binding CurrentWorkspace.Project.Name}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                        <TextBlock Grid.Row="1" Text="Series" Margin="0,0,12,8" />
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding CurrentWorkspace.Project.SeriesName}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                        <TextBlock Grid.Row="2" Text="Folder" Margin="0,0,12,8" />
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding CurrentWorkspace.RootPath}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                        <TextBlock Grid.Row="3" Text="Created (UTC)" Margin="0,0,12,8" />
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding CurrentWorkspace.Project.CreatedAt, StringFormat={}{0:u}}" Margin="0,0,0,8" />
+                        <TextBlock Grid.Row="4" Text="Updated (UTC)" Margin="0,0,12,0" />
+                        <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding CurrentWorkspace.Project.UpdatedAt, StringFormat={}{0:u}}" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Window>
