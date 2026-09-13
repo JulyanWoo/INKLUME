@@ -3,8 +3,8 @@
 AI Comic Localization Studio for Windows, intended for assisted localization
 of manhwa, manga, webtoons, and comics.
 
-This early version creates and reopens local localization projects, preserving
-their identity, names, and timestamps. Comic processing is not implemented yet.
+This early version creates and reopens local localization projects and imports
+ordered chapter images from local folders. OCR and comic processing are not implemented yet.
 
 ## Stack and requirements
 
@@ -69,11 +69,11 @@ modules remain independent. The small composition root uses constructor injectio
 without a DI container. EF Core and serialization stay inside Infrastructure.
 
 Tests cover domain validation, application operations, layer boundaries, and
-SQLite/filesystem round trips, including invalid data and preservation of existing
-files. Tests own and clean unique directories under their ignored build output.
+SQLite/filesystem round trips, including chapter import, invalid data, cancellation,
+and preservation of existing files. Tests own and clean unique directories under their ignored build output.
 Imaging.Tests remains configured without cases until imaging is implemented.
 
-## Create and open a project
+## Projects and local chapters
 
 Enter a project name, series name, and absolute folder path, then select
 **Create project**. **Browse** selects an existing empty folder; a new folder may
@@ -84,6 +84,17 @@ Select **Open project** and choose the same folder to recover its information,
 including after restarting INKLUME. The current project is shown below the form.
 Closing during an operation requests cancellation and waits for it to finish.
 
+With a project open, enter a chapter number and optional title, then select
+**Import chapter** and choose a local source folder. Chapter numbers are non-negative
+decimals, so both `10` and `10.5` are valid. PNG, JPG, JPEG, and WebP files are
+supported. Other files in the selected folder are reported and ignored.
+
+Images are sorted naturally (`1`, `2`, `10`), copied without conversion, and named
+sequentially inside the project. INKLUME records the original file name and a
+SHA-256 content hash. The source files are never moved, renamed, modified, or deleted.
+The chapter list, ordered page list, and selected-page preview are restored from
+SQLite when the project is reopened. Only the selected image is decoded for preview.
+
 ```text
 <selected folder>/
     project.db
@@ -93,21 +104,27 @@ Closing during an operation requests cancellation and waits for it to finish.
         glossary.json
         translation_rules.json
     chapters/
+        001/
+            001_raw/
+                001.png
+                002.jpg
     cache/
 ```
 
-The only application table is `Projects`: `Id`, `Name`, `SeriesName`, `CreatedAt`,
-`UpdatedAt`, and `FormatVersion`. EF Core also maintains migration history and its
-migration lock table. The folder path is derived when opening and is not stored
-in the database, so a complete project folder can be moved while INKLUME is closed.
+SQLite stores `Projects`, `Chapters`, and `Pages`. Chapter numbers are unique within
+a project, while page order and relative paths are unique within a chapter. Page
+records contain metadata and SHA-256 hashes, never image blobs or absolute paths.
+EF Core also maintains migration history and its migration lock table. Paths are
+resolved from the current project root, so a complete project can be moved while
+INKLUME is closed.
 
 All four JSON files are UTF-8 documents with `formatVersion: 1` and `projectId`.
 `series.json` additionally contains `name`. The other documents contain only those
 headers; character, glossary, and translation-rule features are not implemented.
 
-Opening uses a read-only database connection and validates the SQLite application
-identifier, migration history, metadata, required directories, and JSON identity
-and format. A folder containing an arbitrary `project.db` is not accepted.
+Opening validates the SQLite application identifier, migration history, metadata,
+required directories, and JSON identity and format. Known older schemas are migrated
+forward before normal read-only access. A folder containing an arbitrary `project.db` is not accepted.
 Supported paths are local absolute paths without traversal, junctions, or symbolic
 links. Context files are limited to 1 MiB each in this initial format.
 
@@ -118,19 +135,23 @@ incomplete folders are rejected on opening. Select another empty folder to retry
 ## Migrations
 
 `dotnet-ef` is pinned in the local tool manifest. `InitialProject` creates the
-schema and SQLite application identifier. Creation applies migrations to a new
-database and commits metadata after the context files are ready. Opening currently
-accepts only the supported format and migration history; incompatible projects
-are rejected without an automatic migration or destructive recovery.
+project schema and SQLite application identifier. `AddChaptersAndPages` adds only
+the chapter and page tables, relationships, and uniqueness constraints. Unknown
+or future migration histories are rejected without destructive recovery.
 
-To inspect the reproducible initial schema from the development shell:
+To inspect the reproducible current schema from the development shell:
 
 ```powershell
-dotnet ef migrations script 0 InitialProject --project src/Inklume.Infrastructure --startup-project src/Inklume.Infrastructure --output .local/InitialProject.sql
+dotnet ef migrations script 0 AddChaptersAndPages --project src/Inklume.Infrastructure --startup-project src/Inklume.Infrastructure --output .local/Inklume.sql
 ```
 
 The design-time factory uses an in-memory connection to avoid modifying project
 databases while generating migrations. Schema changes must use reviewed migrations.
+
+Local folder acquisition is separate from the application import core. The core
+accepts an ordered collection of named image streams, allowing later legitimate
+sources to reuse the same validation, copy, hash, persistence, and progress behavior.
+No website or browser source is implemented.
 
 OCR, AI providers, translation, browser integrations, image processing,
 background jobs, exports, and installers belong to later stages.
