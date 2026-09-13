@@ -1,0 +1,13 @@
+using Inklume.Domain.Projects;
+
+namespace Inklume.Application.Projects;
+
+public interface IProjectStore
+{
+    Task<ProjectWorkspace> CreateAsync(
+        TranslationProject project,
+        string rootPath,
+        CancellationToken cancellationToken);
+
+    Task<ProjectWorkspace> OpenAsync(string rootPath, CancellationToken cancellationToken);
+}
