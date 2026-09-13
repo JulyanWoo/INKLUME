@@ -9,5 +9,10 @@ public enum ProjectErrorCode
     InvalidProject,
     IncompatibleVersion,
     AccessDenied,
-    StorageFailure
+    StorageFailure,
+    InvalidSource,
+    NoSupportedImages,
+    InvalidImage,
+    DuplicateChapter,
+    ImportFailure
 }
