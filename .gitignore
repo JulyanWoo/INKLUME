@@ -78,8 +78,8 @@ data/
 workspace/
 downloads/
 exports/
-chapters/
-series/
+/chapters/
+/series/
 *_raw/
 *_esp/
 translated/
