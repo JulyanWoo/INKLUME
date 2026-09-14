@@ -20,4 +20,9 @@ public interface IChapterStore
         ProjectWorkspace workspace,
         Guid chapterId,
         CancellationToken cancellationToken);
+
+    Task<PageWorkspace> EnsurePageDimensionsAsync(
+        ProjectWorkspace workspace,
+        Guid pageId,
+        CancellationToken cancellationToken);
 }

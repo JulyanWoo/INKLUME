@@ -14,5 +14,6 @@ public enum ProjectErrorCode
     NoSupportedImages,
     InvalidImage,
     DuplicateChapter,
-    ImportFailure
+    ImportFailure,
+    InvalidRegion
 }

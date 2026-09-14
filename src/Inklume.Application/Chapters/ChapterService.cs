@@ -49,4 +49,19 @@ public sealed class ChapterService(IChapterStore store, TimeProvider timeProvide
         cancellationToken.ThrowIfCancellationRequested();
         return store.GetPagesAsync(workspace, chapterId, cancellationToken);
     }
+
+    public Task<PageWorkspace> EnsurePageDimensionsAsync(
+        ProjectWorkspace workspace,
+        Guid pageId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        if (pageId == Guid.Empty)
+        {
+            throw new ArgumentException("The page identifier must not be empty.", nameof(pageId));
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        return store.EnsurePageDimensionsAsync(workspace, pageId, cancellationToken);
+    }
 }
