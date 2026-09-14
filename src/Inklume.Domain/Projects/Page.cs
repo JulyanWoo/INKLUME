@@ -12,7 +12,9 @@ public sealed record Page
         int number,
         string originalFileName,
         string relativePath,
-        string contentHash)
+        string contentHash,
+        int? pixelWidth = null,
+        int? pixelHeight = null)
     {
         if (id == Guid.Empty)
         {
@@ -35,6 +37,9 @@ public sealed record Page
         OriginalFileName = ValidateText(originalFileName, MaximumOriginalFileNameLength, nameof(originalFileName));
         RelativePath = ValidateText(relativePath, MaximumRelativePathLength, nameof(relativePath));
         ContentHash = ValidateHash(contentHash);
+        ValidateDimensions(pixelWidth, pixelHeight);
+        PixelWidth = pixelWidth;
+        PixelHeight = pixelHeight;
     }
 
     public Guid Id { get; }
@@ -48,6 +53,28 @@ public sealed record Page
     public string RelativePath { get; }
 
     public string ContentHash { get; }
+
+    public int? PixelWidth { get; }
+
+    public int? PixelHeight { get; }
+
+    public bool HasDimensions => PixelWidth.HasValue && PixelHeight.HasValue;
+
+    public Page WithDimensions(int pixelWidth, int pixelHeight)
+    {
+        ValidateDimensions(pixelWidth, pixelHeight);
+        if (HasDimensions)
+        {
+            if (PixelWidth != pixelWidth || PixelHeight != pixelHeight)
+            {
+                throw new InvalidOperationException("The dimensions of an immutable RAW page cannot be changed.");
+            }
+
+            return this;
+        }
+
+        return new Page(Id, ChapterId, Number, OriginalFileName, RelativePath, ContentHash, pixelWidth, pixelHeight);
+    }
 
     private static string ValidateText(string value, int maximumLength, string parameterName)
     {
@@ -70,5 +97,23 @@ public sealed record Page
         }
 
         return value.ToUpperInvariant();
+    }
+
+    private static void ValidateDimensions(int? pixelWidth, int? pixelHeight)
+    {
+        if (pixelWidth.HasValue != pixelHeight.HasValue)
+        {
+            throw new ArgumentException("Page width and height must either both be set or both be absent.");
+        }
+
+        if (pixelWidth is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(pixelWidth), "Page width must be positive.");
+        }
+
+        if (pixelHeight is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(pixelHeight), "Page height must be positive.");
+        }
     }
 }
