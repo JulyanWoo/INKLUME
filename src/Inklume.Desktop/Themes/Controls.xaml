@@ -305,14 +305,32 @@
             <DataTrigger Binding="{Binding Kind}" Value="{x:Static viewModels:ExplorerNodeKind.Project}">
                 <Setter Property="Symbol" Value="BookOpen24" />
             </DataTrigger>
-            <DataTrigger Binding="{Binding Kind}" Value="{x:Static viewModels:ExplorerNodeKind.Chapters}">
+            <DataTrigger Binding="{Binding Kind}" Value="{x:Static viewModels:ExplorerNodeKind.ChaptersFolder}">
                 <Setter Property="Symbol" Value="Folder24" />
             </DataTrigger>
             <DataTrigger Binding="{Binding Kind}" Value="{x:Static viewModels:ExplorerNodeKind.Chapter}">
                 <Setter Property="Symbol" Value="FolderOpen24" />
             </DataTrigger>
+            <DataTrigger Binding="{Binding Kind}" Value="{x:Static viewModels:ExplorerNodeKind.RawFolder}">
+                <Setter Property="Symbol" Value="Folder24" />
+            </DataTrigger>
             <DataTrigger Binding="{Binding Kind}" Value="{x:Static viewModels:ExplorerNodeKind.Page}">
                 <Setter Property="Symbol" Value="Image24" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding Kind}" Value="{x:Static viewModels:ExplorerNodeKind.ContextFolder}">
+                <Setter Property="Symbol" Value="Folder24" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding Kind}" Value="{x:Static viewModels:ExplorerNodeKind.ContextFile}">
+                <Setter Property="Symbol" Value="DocumentTable24" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding Kind}" Value="{x:Static viewModels:ExplorerNodeKind.ProjectDatabase}">
+                <Setter Property="Symbol" Value="Database24" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding Kind}" Value="{x:Static viewModels:ExplorerNodeKind.GenericFolder}">
+                <Setter Property="Symbol" Value="Folder24" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding Kind}" Value="{x:Static viewModels:ExplorerNodeKind.GenericFile}">
+                <Setter Property="Symbol" Value="Document24" />
             </DataTrigger>
         </Style.Triggers>
     </Style>

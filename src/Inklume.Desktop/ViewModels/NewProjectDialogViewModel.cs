@@ -61,22 +61,9 @@ public sealed partial class NewProjectDialogViewModel : ObservableObject
         try
         {
             ErrorMessage = string.Empty;
-            string? selectedFolder = _folderPicker.PickFolder("Choose an empty folder for the new project");
+            string? selectedFolder = _folderPicker.PickFolder("Choose a folder for the new project");
             if (selectedFolder is not null)
             {
-                if (Directory.Exists(selectedFolder)
-                    && Directory.EnumerateFileSystemEntries(selectedFolder).Any()
-                    && !string.IsNullOrWhiteSpace(ProjectName))
-                {
-                    string safeName = SanitizeFolderName(ProjectName);
-                    string candidate = Path.Combine(selectedFolder, safeName);
-                    if (!Directory.Exists(candidate) || !Directory.EnumerateFileSystemEntries(candidate).Any())
-                    {
-                        ProjectFolder = candidate;
-                        return;
-                    }
-                }
-
                 ProjectFolder = selectedFolder;
             }
         }
@@ -107,12 +94,6 @@ public sealed partial class NewProjectDialogViewModel : ObservableObject
                 return;
             }
 
-            if (Directory.Exists(fullPath) && Directory.EnumerateFileSystemEntries(fullPath).Any())
-            {
-                ErrorMessage = "The selected folder is not empty. Please choose an empty folder or specify a new subfolder name.";
-                return;
-            }
-
             string? parent = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(fullPath));
             if (parent is not null && !Directory.Exists(parent))
             {
@@ -128,12 +109,5 @@ public sealed partial class NewProjectDialogViewModel : ObservableObject
 
         Result = new CreateProjectRequest(ProjectName.Trim(), SeriesName.Trim(), folder);
         CloseRequested?.Invoke(this, new DialogCloseRequestedEventArgs(true));
-    }
-
-    private static string SanitizeFolderName(string name)
-    {
-        char[] invalidChars = Path.GetInvalidFileNameChars();
-        string clean = string.Concat(name.Trim().Select(c => invalidChars.Contains(c) ? '_' : c));
-        return string.IsNullOrWhiteSpace(clean) ? "Project" : clean;
     }
 }

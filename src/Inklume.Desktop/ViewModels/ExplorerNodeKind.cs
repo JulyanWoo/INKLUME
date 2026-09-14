@@ -3,7 +3,15 @@ namespace Inklume.Desktop.ViewModels;
 public enum ExplorerNodeKind
 {
     Project,
-    Chapters,
+    ChaptersFolder,
+    Chapters = ChaptersFolder,
     Chapter,
-    Page
+    RawFolder,
+    Page,
+    ContextFolder,
+    ContextFile,
+    ProjectDatabase,
+    GenericFolder,
+    GenericFile,
+    Placeholder
 }

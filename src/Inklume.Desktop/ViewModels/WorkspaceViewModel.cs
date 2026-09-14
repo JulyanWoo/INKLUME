@@ -109,6 +109,15 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         _chapterService = chapterService;
         _localChapterSourceProvider = localChapterSourceProvider;
         _dialogService = dialogService;
+        Explorer = new ProjectExplorerViewModel(workspace, chapterService);
+        Explorer.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ProjectExplorerViewModel.HasChapters))
+            {
+                OnPropertyChanged(nameof(HasChapters));
+            }
+        };
+
         VisualEditor = new VisualEditorViewModel(
             workspace, chapterService, textRegionService, previewLoader);
         VisualEditor.PropertyChanged += OnVisualEditorPropertyChanged;
@@ -117,6 +126,8 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         CancelOperationCommand = new RelayCommand(CancelOperation, () => IsCancellationAvailable);
         ToggleOutputCommand = new RelayCommand(() => IsOutputVisible = !IsOutputVisible);
     }
+
+    public ProjectExplorerViewModel Explorer { get; }
 
     public string ProjectName => Workspace.Project.Name;
 
@@ -131,9 +142,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject
 
     public bool HasSelectedPage => SelectedPage is not null;
 
-    public bool HasChapters => ExplorerRoots
-        .SelectMany(node => node.Children)
-        .Any(node => node.Kind == ExplorerNodeKind.Chapters && node.Children.Count > 0);
+    public bool HasChapters => Explorer.HasChapters;
 
     public string SelectedChapterNumber => SelectedChapter?.Number.ToString() ?? string.Empty;
 
@@ -153,7 +162,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         ? $"{width} x {height}"
         : "Not resolved";
 
-    public ObservableCollection<ProjectExplorerNode> ExplorerRoots { get; } = [];
+    public ObservableCollection<ProjectExplorerNode> ExplorerRoots => Explorer.Roots;
 
     public ObservableCollection<string> OutputMessages { get; } = [];
 
@@ -167,7 +176,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject
 
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
-        await ReloadExplorerAsync(selectedChapterId: null, cancellationToken);
+        await Explorer.InitializeAsync(cancellationToken);
         AddOutput("Project opened.");
         StatusMessage = "Project loaded.";
     }
@@ -180,6 +189,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         }
 
         SelectedExplorerNode = node;
+        Explorer.SelectNode(node);
         _selectionTask = SelectExplorerNodeCoreAsync(node);
         return _selectionTask;
     }
@@ -194,7 +204,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         await Task.WhenAll(ImportChapterCommand.ExecutionTask ?? Task.CompletedTask, _selectionTask);
         VisualEditor.Clear();
         ClearSelection();
-        ExplorerRoots.Clear();
+        Explorer.Roots.Clear();
         OnPropertyChanged(nameof(HasChapters));
     }
 
@@ -276,38 +286,46 @@ public sealed partial class WorkspaceViewModel : ObservableObject
 
     private async Task ReloadExplorerAsync(Guid? selectedChapterId, CancellationToken cancellationToken)
     {
-        IReadOnlyList<Chapter> chapters = await Task.Run(
-            () => _chapterService.GetChaptersAsync(Workspace, cancellationToken), cancellationToken);
         ClearSelection();
-        ExplorerRoots.Clear();
-        ProjectExplorerNode projectNode = ProjectExplorerNode.CreateProject(Workspace);
-        ProjectExplorerNode chaptersNode = ProjectExplorerNode.CreateChaptersGroup();
-        foreach (Chapter chapter in chapters)
-        {
-            chaptersNode.Children.Add(ProjectExplorerNode.CreateChapter(chapter));
-        }
+        await Explorer.RefreshAsync(cancellationToken);
 
-        projectNode.Children.Add(chaptersNode);
-        ExplorerRoots.Add(projectNode);
-        OnPropertyChanged(nameof(HasChapters));
-
-        ProjectExplorerNode? selectedChapterNode = selectedChapterId.HasValue
-            ? chaptersNode.Children.FirstOrDefault(node => node.Chapter?.Id == selectedChapterId.Value)
-            : chaptersNode.Children.FirstOrDefault();
-        if (selectedChapterNode is not null)
+        if (selectedChapterId.HasValue && Explorer.Roots.Count > 0)
         {
-            await PopulateChapterPagesAsync(selectedChapterNode, cancellationToken);
-            selectedChapterNode.IsExpanded = true;
-            ProjectExplorerNode? firstPage = selectedChapterNode.Children.FirstOrDefault();
-            if (firstPage is not null)
+            ProjectExplorerNode projectNode = Explorer.Roots[0];
+            ProjectExplorerNode? chaptersNode = projectNode.Children
+                .FirstOrDefault(n => n.Kind == ExplorerNodeKind.ChaptersFolder);
+            if (chaptersNode is not null)
             {
-                SelectedExplorerNode = firstPage;
-                await LoadPageAsync(firstPage, cancellationToken);
-            }
-            else
-            {
-                SelectedExplorerNode = selectedChapterNode;
-                SelectChapterMetadata(selectedChapterNode);
+                await chaptersNode.EnsureLoadedAsync();
+                chaptersNode.IsExpanded = true;
+                ProjectExplorerNode? chapterNode = chaptersNode.Children
+                    .FirstOrDefault(n => n.Kind == ExplorerNodeKind.Chapter && n.Chapter?.Id == selectedChapterId.Value);
+                if (chapterNode is not null)
+                {
+                    await chapterNode.EnsureLoadedAsync();
+                    chapterNode.IsExpanded = true;
+                    ProjectExplorerNode? rawFolder = chapterNode.Children
+                        .FirstOrDefault(n => n.Kind == ExplorerNodeKind.RawFolder);
+                    if (rawFolder is not null)
+                    {
+                        await rawFolder.EnsureLoadedAsync();
+                        rawFolder.IsExpanded = true;
+                        ProjectExplorerNode? firstPage = rawFolder.Children
+                            .FirstOrDefault(n => n.Kind == ExplorerNodeKind.Page);
+                        if (firstPage is not null)
+                        {
+                            await SelectExplorerNodeAsync(firstPage);
+                        }
+                        else
+                        {
+                            await SelectExplorerNodeAsync(chapterNode);
+                        }
+                    }
+                    else
+                    {
+                        await SelectExplorerNodeAsync(chapterNode);
+                    }
+                }
             }
         }
     }
@@ -323,14 +341,14 @@ public sealed partial class WorkspaceViewModel : ObservableObject
             switch (node.Kind)
             {
                 case ExplorerNodeKind.Chapter:
-                    await SelectChapterNodeAsync(node, cancellation.Token);
+                    SelectChapterMetadata(node);
                     break;
                 case ExplorerNodeKind.Page:
                     await LoadPageAsync(node, cancellation.Token);
                     break;
                 default:
                     ClearSelectionData();
-                    StatusMessage = "Project loaded.";
+                    StatusMessage = $"{node.DisplayName} selected.";
                     break;
             }
         }
@@ -359,17 +377,6 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         }
     }
 
-    private async Task SelectChapterNodeAsync(ProjectExplorerNode node, CancellationToken cancellationToken)
-    {
-        SelectChapterMetadata(node);
-        if (node.Children.Count == 0)
-        {
-            await PopulateChapterPagesAsync(node, cancellationToken);
-        }
-
-        node.IsExpanded = true;
-    }
-
     private void SelectChapterMetadata(ProjectExplorerNode node)
     {
         Chapter chapter = node.Chapter
@@ -378,19 +385,6 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         SelectedChapter = chapter;
         SelectedPage = null;
         VisualEditor.Clear();
-    }
-
-    private async Task PopulateChapterPagesAsync(ProjectExplorerNode node, CancellationToken cancellationToken)
-    {
-        Chapter chapter = node.Chapter
-            ?? throw new InvalidOperationException("The explorer chapter node has no chapter metadata.");
-        IReadOnlyList<PageWorkspace> pages = await Task.Run(
-            () => _chapterService.GetPagesAsync(Workspace, chapter.Id, cancellationToken), cancellationToken);
-        node.Children.Clear();
-        foreach (PageWorkspace page in pages)
-        {
-            node.Children.Add(ProjectExplorerNode.CreatePage(chapter, page));
-        }
     }
 
     private async Task LoadPageAsync(ProjectExplorerNode node, CancellationToken cancellationToken)
