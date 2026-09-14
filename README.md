@@ -77,10 +77,11 @@ Imaging.Tests remains configured without cases until imaging is implemented.
 ## Projects and local chapters
 
 The Fluent desktop shell uses a compact integrated title bar and application menu.
-The Home view provides **New Project** and **Open Project**. The New Project dialog
-collects the project name, series name, and absolute folder path. **Browse** selects
-an existing empty folder; a new folder may also be entered if its parent already
-exists. Files are written directly inside the selected folder. Names are metadata,
+The New Project dialog collects the project name, series name, and absolute folder path.
+**Browse** selects an existing folder; a new folder may also be entered if its parent
+already exists. Files are written directly inside the selected folder. Project roots
+are not required to be empty; INKLUME safely initializes its reserved resources alongside
+existing user files and folders without overwriting unrelated content. Names are metadata,
 not file paths. Projects opened during the current application session appear under
 Recent Projects. In a workspace, **File > Close Project** returns to Home without
 deleting project files.
@@ -93,7 +94,7 @@ settings fall back safely to Graphite.
 
 Select **Open Project** and choose the same folder to recover its information,
 including after restarting INKLUME. The workspace shell displays the active project,
-chapter and page hierarchy, RAW page preview, selected-page metadata, and operation
+hybrid project explorer hierarchy, RAW page preview, selected-page metadata, and operation
 output. The Output region starts collapsed and can be toggled through
 **View > Output**. Closing during an operation requests cancellation and waits for
 it to finish.
@@ -106,10 +107,14 @@ Other files in the selected folder are reported and ignored.
 Images are sorted naturally (`1`, `2`, `10`), copied without conversion, and named
 sequentially inside the project. INKLUME records the original file name and a
 SHA-256 content hash. The source files are never moved, renamed, modified, or deleted.
-The Project Explorer, ordered pages, inspector metadata, and selected-page preview
-are restored from SQLite when the project is reopened. Only the selected image is
-decoded for preview. The native WPF preview uses an eight-million-pixel decode budget
-for long pages without modifying or locking the imported image.
+The Project Explorer presents an IDE-like hybrid tree reflecting project resources
+alongside safe user content. Lazy expansion keeps opening times instantaneous even for
+large projects with hundreds of chapters or thousands of pages. Persistent Chapter and
+Page records are restored from SQLite, while internal application caches (`cache/`) remain
+hidden by default. Selecting a Page restores its inspector metadata, visual editor canvas,
+and text regions. Only the selected image is decoded for preview. The native WPF preview
+uses an eight-million-pixel decode budget for long pages without modifying or locking the
+imported image.
 
 ## Visual editor
 
@@ -127,7 +132,7 @@ Inspector. All geometry is stored in immutable RAW-image pixel coordinates, whil
 zoom, pan, and window coordinates remain temporary UI state.
 
 ```text
-<selected folder>/
+<project root>/
     project.db
     context/
         series.json
@@ -139,8 +144,20 @@ zoom, pan, and window coordinates remain temporary UI state.
             001_raw/
                 001.png
                 002.jpg
-    cache/
+        002/
+        downloads/     (unknown user directory)
+    cache/             (internal cache, hidden by default)
+    references/        (user content preserved intact)
+    cover.png          (user content preserved intact)
+    notes.txt          (user content preserved intact)
 ```
+
+Reserved project resources include `project.db`, `context/`, `chapters/`, and `cache/`.
+Any pre-existing user files or directories (such as `references/`, `notes.txt`, or cover images)
+outside or alongside these resources are strictly preserved and never moved, renamed,
+or deleted. Pre-existing directories inside `chapters/` that are not managed by INKLUME
+remain intact as generic folders; manually placed folders are not automatically imported
+as chapters.
 
 SQLite stores `Projects`, `Chapters`, `Pages`, `TextRegions`, and ordered
 `TextRegionPoints`. Chapter numbers are unique within a project, while page order
@@ -158,13 +175,13 @@ headers; character, glossary, and translation-rule features are not implemented.
 
 Opening validates the SQLite application identifier, migration history, metadata,
 required directories, and JSON identity and format. Known older schemas are migrated
-forward before normal read-only access. A folder containing an arbitrary `project.db` is not accepted.
-Supported paths are local absolute paths without traversal, junctions, or symbolic
-links. Context files are limited to 1 MiB each in this initial format.
+forward before normal read-only access. A folder containing an arbitrary or corrupt `project.db`
+is rejected and never overwritten. Supported paths are local absolute paths without traversal,
+junctions, or symbolic links. Context files are limited to 1 MiB each in this initial format.
 
-Existing nonempty folders are never overwritten. Interrupted or failed creation
-preserves partial files; it does not silently delete or recreate a database. Such
-incomplete folders are rejected on opening. Select another empty folder to retry.
+Existing valid projects are detected and prevented from being overwritten during initialization.
+Failed initialization safely rolls back only newly created files and directories, leaving
+pre-existing user files intact. Select another folder to retry if an unrecoverable conflict exists.
 
 ## Migrations
 
