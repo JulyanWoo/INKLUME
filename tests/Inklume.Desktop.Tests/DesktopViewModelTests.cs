@@ -63,6 +63,16 @@ public sealed class DesktopViewModelTests
         MainViewModel viewModel = CreateMainViewModel(projectStore, chapterStore, dialogs);
         viewModel.OpenProjectCommand.Execute(null);
         await (viewModel.OpenProjectCommand.ExecutionTask ?? Task.CompletedTask);
+
+        ProjectExplorerNode projectNode = Assert.Single(viewModel.Workspace!.ExplorerRoots);
+        ProjectExplorerNode chaptersNode = projectNode.Children.First(c => c.Kind == ExplorerNodeKind.ChaptersFolder);
+        await chaptersNode.EnsureLoadedAsync();
+        ProjectExplorerNode chapterNode = chaptersNode.Children.First(c => c.Kind == ExplorerNodeKind.Chapter);
+        await chapterNode.EnsureLoadedAsync();
+        ProjectExplorerNode rawFolder = chapterNode.Children.First(c => c.Kind == ExplorerNodeKind.RawFolder);
+        await rawFolder.EnsureLoadedAsync();
+        ProjectExplorerNode pageNode = rawFolder.Children.First(c => c.Kind == ExplorerNodeKind.Page);
+        await viewModel.Workspace.SelectExplorerNodeAsync(pageNode);
         Assert.NotNull(viewModel.Workspace?.SelectedPage);
 
         viewModel.CloseProjectCommand.Execute(null);
@@ -87,10 +97,25 @@ public sealed class DesktopViewModelTests
         await viewModel.InitializeAsync(CancellationToken.None);
 
         ProjectExplorerNode projectNode = Assert.Single(viewModel.ExplorerRoots);
-        ProjectExplorerNode chaptersNode = Assert.Single(projectNode.Children);
-        ProjectExplorerNode chapterNode = Assert.Single(chaptersNode.Children);
-        Assert.Equal(2, chapterNode.Children.Count);
+        Assert.Contains(projectNode.Children, n => n.Kind == ExplorerNodeKind.ChaptersFolder);
+        Assert.Contains(projectNode.Children, n => n.Kind == ExplorerNodeKind.ContextFolder);
         Assert.True(viewModel.HasChapters);
+
+        ProjectExplorerNode chaptersNode = projectNode.Children.First(n => n.Kind == ExplorerNodeKind.ChaptersFolder);
+        await chaptersNode.EnsureLoadedAsync();
+        ProjectExplorerNode chapterNode = Assert.Single(chaptersNode.Children);
+        Assert.Equal(ExplorerNodeKind.Chapter, chapterNode.Kind);
+
+        await chapterNode.EnsureLoadedAsync();
+        ProjectExplorerNode rawFolder = Assert.Single(chapterNode.Children);
+        Assert.Equal(ExplorerNodeKind.RawFolder, rawFolder.Kind);
+
+        await rawFolder.EnsureLoadedAsync();
+        Assert.Equal(2, rawFolder.Children.Count);
+
+        ProjectExplorerNode firstPageNode = rawFolder.Children[0];
+        await viewModel.SelectExplorerNodeAsync(firstPageNode);
+
         Assert.True(viewModel.HasSelectedPage);
         Assert.Equal("10.5", viewModel.SelectedChapterNumber);
         Assert.Equal("1", viewModel.SelectedPageNumber);
@@ -107,12 +132,19 @@ public sealed class DesktopViewModelTests
         ProjectWorkspace workspace = CreateWorkspace("Selection Project", @"C:\Selection Project");
         Chapter chapter = CreateChapter(workspace.Project.Id);
         PageWorkspace firstPage = CreatePage(chapter.Id, 1, "one.png", "001.png");
-        PageWorkspace secondPage = CreatePage(chapter.Id, 2, "two.png", "002.png");
+        PageWorkspace secondPage = CreatePage(chapter.Id, 2, "two.png", "002.jpg");
         var previewLoader = new PreviewLoaderStub();
         WorkspaceViewModel viewModel = CreateWorkspaceViewModel(
             workspace, new ChapterStoreStub([chapter], [firstPage, secondPage]), previewLoader: previewLoader);
         await viewModel.InitializeAsync(CancellationToken.None);
-        ProjectExplorerNode secondPageNode = viewModel.ExplorerRoots[0].Children[0].Children[0].Children[1];
+
+        ProjectExplorerNode chaptersNode = viewModel.ExplorerRoots[0].Children.First(n => n.Kind == ExplorerNodeKind.ChaptersFolder);
+        await chaptersNode.EnsureLoadedAsync();
+        ProjectExplorerNode chapterNode = chaptersNode.Children.First(n => n.Kind == ExplorerNodeKind.Chapter);
+        await chapterNode.EnsureLoadedAsync();
+        ProjectExplorerNode rawFolder = chapterNode.Children.First(n => n.Kind == ExplorerNodeKind.RawFolder);
+        await rawFolder.EnsureLoadedAsync();
+        ProjectExplorerNode secondPageNode = rawFolder.Children[1];
 
         await viewModel.SelectExplorerNodeAsync(secondPageNode);
 
@@ -134,9 +166,15 @@ public sealed class DesktopViewModelTests
         await viewModel.InitializeAsync(CancellationToken.None);
 
         ProjectExplorerNode projectNode = viewModel.ExplorerRoots[0];
-        ProjectExplorerNode chaptersNode = projectNode.Children[0];
-        ProjectExplorerNode chapterNode = chaptersNode.Children[0];
-        ProjectExplorerNode firstPageNode = chapterNode.Children[0];
+        ProjectExplorerNode chaptersNode = projectNode.Children.First(n => n.Kind == ExplorerNodeKind.ChaptersFolder);
+        await chaptersNode.EnsureLoadedAsync();
+        ProjectExplorerNode chapterNode = chaptersNode.Children.First(n => n.Kind == ExplorerNodeKind.Chapter);
+        await chapterNode.EnsureLoadedAsync();
+        ProjectExplorerNode rawFolder = chapterNode.Children.First(n => n.Kind == ExplorerNodeKind.RawFolder);
+        await rawFolder.EnsureLoadedAsync();
+        ProjectExplorerNode firstPageNode = rawFolder.Children[0];
+
+        await viewModel.SelectExplorerNodeAsync(firstPageNode);
 
         Assert.False(chapterNode.IsSelected);
         Assert.True(firstPageNode.IsSelected);
@@ -165,10 +203,17 @@ public sealed class DesktopViewModelTests
         await viewModel.InitializeAsync(CancellationToken.None);
 
         ProjectExplorerNode projectNode = viewModel.ExplorerRoots[0];
-        ProjectExplorerNode chaptersNode = projectNode.Children[0];
-        ProjectExplorerNode chapterNode = chaptersNode.Children[0];
-        ProjectExplorerNode firstPageNode = chapterNode.Children[0];
-        ProjectExplorerNode secondPageNode = chapterNode.Children[1];
+        ProjectExplorerNode chaptersNode = projectNode.Children.First(n => n.Kind == ExplorerNodeKind.ChaptersFolder);
+        await chaptersNode.EnsureLoadedAsync();
+        ProjectExplorerNode chapterNode = chaptersNode.Children.First(n => n.Kind == ExplorerNodeKind.Chapter);
+        await chapterNode.EnsureLoadedAsync();
+        ProjectExplorerNode rawFolder = chapterNode.Children.First(n => n.Kind == ExplorerNodeKind.RawFolder);
+        await rawFolder.EnsureLoadedAsync();
+        ProjectExplorerNode firstPageNode = rawFolder.Children[0];
+        ProjectExplorerNode secondPageNode = rawFolder.Children[1];
+
+        await viewModel.SelectExplorerNodeAsync(firstPageNode);
+        Assert.True(firstPageNode.IsSelected);
 
         await viewModel.SelectExplorerNodeAsync(secondPageNode);
 
@@ -250,7 +295,7 @@ public sealed class DesktopViewModelTests
     }
 
     [Fact]
-    public void NewProjectDialogViewModel_ShouldRejectNonEmptyFolderAndKeepDialogOpen()
+    public void NewProjectDialogViewModel_ShouldAcceptNonEmptyFolderAndCompleteDialog()
     {
         string tempDir = Path.Combine(Path.GetTempPath(), "inklume_test_" + Guid.NewGuid());
         Directory.CreateDirectory(tempDir);
@@ -268,9 +313,10 @@ public sealed class DesktopViewModelTests
             Assert.True(viewModel.CreateCommand.CanExecute(null));
             viewModel.CreateCommand.Execute(null);
 
-            Assert.Null(viewModel.Result);
-            Assert.False(closeRequested);
-            Assert.Contains("not empty", viewModel.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+            Assert.NotNull(viewModel.Result);
+            Assert.True(closeRequested);
+            Assert.Empty(viewModel.ErrorMessage);
+            Assert.Equal(tempDir, viewModel.Result.RootPath);
         }
         finally
         {
@@ -282,7 +328,7 @@ public sealed class DesktopViewModelTests
     }
 
     [Fact]
-    public void NewProjectDialogViewModel_ShouldProposeSubfolderWhenBrowseSelectsOccupiedFolder()
+    public void NewProjectDialogViewModel_ShouldRespectExactFolderWhenBrowseSelectsOccupiedFolder()
     {
         string tempDir = Path.Combine(Path.GetTempPath(), "inklume_test_" + Guid.NewGuid());
         Directory.CreateDirectory(tempDir);
@@ -297,8 +343,7 @@ public sealed class DesktopViewModelTests
 
             viewModel.BrowseCommand.Execute(null);
 
-            string expected = Path.Combine(tempDir, "Solo Leveling");
-            Assert.Equal(expected, viewModel.ProjectFolder);
+            Assert.Equal(tempDir, viewModel.ProjectFolder);
             Assert.Empty(viewModel.ErrorMessage);
         }
         finally
@@ -419,110 +464,110 @@ public sealed class DesktopViewModelTests
         public Task<ProjectWorkspace> OpenAsync(string rootPath, CancellationToken cancellationToken)
             => Task.FromResult(WorkspaceToOpen ?? throw new InvalidOperationException("No project was configured."));
     }
+}
 
-    private sealed class ChapterStoreStub(
-        IReadOnlyList<Chapter>? chapters = null,
-        IReadOnlyList<PageWorkspace>? pages = null) : IChapterStore
+internal sealed class ChapterStoreStub(
+    IReadOnlyList<Chapter>? chapters = null,
+    IReadOnlyList<PageWorkspace>? pages = null) : IChapterStore
+{
+    public IReadOnlyList<PageWorkspace> Pages { get; } = pages ?? [];
+
+    public Task<ChapterImportResult> ImportAsync(
+        ProjectWorkspace workspace,
+        Chapter chapter,
+        ChapterSource source,
+        IProgress<ChapterImportProgress>? progress,
+        CancellationToken cancellationToken)
+        => throw new NotSupportedException();
+
+    public Task<IReadOnlyList<Chapter>> GetChaptersAsync(
+        ProjectWorkspace workspace,
+        CancellationToken cancellationToken)
+        => Task.FromResult(chapters ?? (IReadOnlyList<Chapter>)[]);
+
+    public Task<IReadOnlyList<PageWorkspace>> GetPagesAsync(
+        ProjectWorkspace workspace,
+        Guid chapterId,
+        CancellationToken cancellationToken)
+        => Task.FromResult<IReadOnlyList<PageWorkspace>>([.. Pages.Where(p => p.Page.ChapterId == chapterId)]);
+
+    public Task<PageWorkspace> EnsurePageDimensionsAsync(
+        ProjectWorkspace workspace,
+        Guid pageId,
+        CancellationToken cancellationToken)
     {
-        public IReadOnlyList<PageWorkspace> Pages { get; } = pages ?? [];
-
-        public Task<ChapterImportResult> ImportAsync(
-            ProjectWorkspace workspace,
-            Chapter chapter,
-            ChapterSource source,
-            IProgress<ChapterImportProgress>? progress,
-            CancellationToken cancellationToken)
-            => throw new NotSupportedException();
-
-        public Task<IReadOnlyList<Chapter>> GetChaptersAsync(
-            ProjectWorkspace workspace,
-            CancellationToken cancellationToken)
-            => Task.FromResult(chapters ?? (IReadOnlyList<Chapter>)[]);
-
-        public Task<IReadOnlyList<PageWorkspace>> GetPagesAsync(
-            ProjectWorkspace workspace,
-            Guid chapterId,
-            CancellationToken cancellationToken)
-            => Task.FromResult(Pages);
-
-        public Task<PageWorkspace> EnsurePageDimensionsAsync(
-            ProjectWorkspace workspace,
-            Guid pageId,
-            CancellationToken cancellationToken)
-        {
-            PageWorkspace page = Pages.Single(item => item.Page.Id == pageId);
-            return Task.FromResult(page.Page.HasDimensions
-                ? page
-                : page with { Page = page.Page.WithDimensions(1080, 1920) });
-        }
+        PageWorkspace page = Pages.Single(item => item.Page.Id == pageId);
+        return Task.FromResult(page.Page.HasDimensions
+            ? page
+            : page with { Page = page.Page.WithDimensions(1080, 1920) });
     }
+}
 
-    private sealed class DialogServiceStub : IProjectDialogService
+internal sealed class DialogServiceStub : IProjectDialogService
+{
+    public CreateProjectRequest? NewProjectResult { get; init; }
+
+    public ImportChapterDialogResult? ImportChapterResult { get; init; }
+
+    public string? ProjectFolderResult { get; init; }
+
+    public CreateProjectRequest? ShowNewProjectDialog() => NewProjectResult;
+
+    public ImportChapterDialogResult? ShowImportChapterDialog() => ImportChapterResult;
+
+    public string? PickProjectFolder() => ProjectFolderResult;
+}
+
+internal sealed class ApplicationDialogServiceStub : IApplicationDialogService
+{
+    public int SettingsOpenCount { get; private set; }
+
+    public int AboutOpenCount { get; private set; }
+
+    public void ShowSettingsDialog() => SettingsOpenCount++;
+
+    public void ShowAboutDialog() => AboutOpenCount++;
+}
+
+internal sealed class EmptySourceProvider : ILocalChapterSourceProvider
+{
+    public Task<ChapterSource> LoadAsync(
+        string sourceFolder,
+        string projectRoot,
+        CancellationToken cancellationToken)
+        => Task.FromResult(new ChapterSource([], []));
+}
+
+internal sealed class BlockingSourceProvider : ILocalChapterSourceProvider
+{
+    public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public async Task<ChapterSource> LoadAsync(
+        string sourceFolder,
+        string projectRoot,
+        CancellationToken cancellationToken)
     {
-        public CreateProjectRequest? NewProjectResult { get; init; }
-
-        public ImportChapterDialogResult? ImportChapterResult { get; init; }
-
-        public string? ProjectFolderResult { get; init; }
-
-        public CreateProjectRequest? ShowNewProjectDialog() => NewProjectResult;
-
-        public ImportChapterDialogResult? ShowImportChapterDialog() => ImportChapterResult;
-
-        public string? PickProjectFolder() => ProjectFolderResult;
+        Started.TrySetResult();
+        await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+        return new ChapterSource([], []);
     }
+}
 
-    private sealed class ApplicationDialogServiceStub : IApplicationDialogService
+internal sealed class PreviewLoaderStub : IPagePreviewLoader
+{
+    public string? LastFilePath { get; private set; }
+
+    public Task<PagePreview> LoadAsync(
+        string filePath, int rawPixelWidth, int rawPixelHeight, CancellationToken cancellationToken)
     {
-        public int SettingsOpenCount { get; private set; }
-
-        public int AboutOpenCount { get; private set; }
-
-        public void ShowSettingsDialog() => SettingsOpenCount++;
-
-        public void ShowAboutDialog() => AboutOpenCount++;
+        LastFilePath = filePath;
+        return Task.FromResult(new PagePreview(new DrawingImage(), 540, 960));
     }
+}
 
-    private sealed class EmptySourceProvider : ILocalChapterSourceProvider
-    {
-        public Task<ChapterSource> LoadAsync(
-            string sourceFolder,
-            string projectRoot,
-            CancellationToken cancellationToken)
-            => Task.FromResult(new ChapterSource([], []));
-    }
+internal sealed class FolderPickerStub(string? selectedFolder = null) : IProjectFolderPicker
+{
+    public string? SelectedFolder { get; set; } = selectedFolder;
 
-    private sealed class BlockingSourceProvider : ILocalChapterSourceProvider
-    {
-        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public async Task<ChapterSource> LoadAsync(
-            string sourceFolder,
-            string projectRoot,
-            CancellationToken cancellationToken)
-        {
-            Started.TrySetResult();
-            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
-            return new ChapterSource([], []);
-        }
-    }
-
-    private sealed class PreviewLoaderStub : IPagePreviewLoader
-    {
-        public string? LastFilePath { get; private set; }
-
-        public Task<PagePreview> LoadAsync(
-            string filePath, int rawPixelWidth, int rawPixelHeight, CancellationToken cancellationToken)
-        {
-            LastFilePath = filePath;
-            return Task.FromResult(new PagePreview(new DrawingImage(), 540, 960));
-        }
-    }
-
-    private sealed class FolderPickerStub(string? selectedFolder = null) : IProjectFolderPicker
-    {
-        public string? SelectedFolder { get; set; } = selectedFolder;
-
-        public string? PickFolder(string description) => SelectedFolder;
-    }
+    public string? PickFolder(string description) => SelectedFolder;
 }

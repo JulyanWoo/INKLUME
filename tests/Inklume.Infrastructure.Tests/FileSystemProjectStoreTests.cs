@@ -105,14 +105,127 @@ public sealed class FileSystemProjectStoreTests : IDisposable
         Directory.CreateDirectory(rootPath);
         string originalPath = Path.Combine(rootPath, "original.txt");
         await File.WriteAllTextAsync(originalPath, "Preserve this original document.", TestContext.Current.CancellationToken);
-        FileSnapshot[] before = CaptureFiles(rootPath);
+
+        ProjectWorkspace workspace = await new FileSystemProjectStore().CreateAsync(
+            CreateProject(), rootPath, TestContext.Current.CancellationToken);
+
+        Assert.Equal(Path.GetFullPath(rootPath), workspace.RootPath);
+        Assert.True(File.Exists(originalPath));
+        Assert.Equal("Preserve this original document.", await File.ReadAllTextAsync(originalPath, TestContext.Current.CancellationToken));
+        Assert.True(File.Exists(Path.Combine(rootPath, "project.db")));
+        Assert.True(Directory.Exists(Path.Combine(rootPath, "chapters")));
+        Assert.True(Directory.Exists(Path.Combine(rootPath, "context")));
+        Assert.True(Directory.Exists(Path.Combine(rootPath, "cache")));
+    }
+
+    [Fact]
+    public async Task CreateAsync_ShouldPreserveUnrelatedFolder_WhenDestinationHasUserFolders()
+    {
+        string rootPath = _temporaryWorkspace.GetPath("Existing references");
+        string refDir = Path.Combine(rootPath, "references");
+        Directory.CreateDirectory(refDir);
+        string refFile = Path.Combine(refDir, "notes.txt");
+        await File.WriteAllTextAsync(refFile, "Reference material", TestContext.Current.CancellationToken);
+
+        ProjectWorkspace workspace = await new FileSystemProjectStore().CreateAsync(
+            CreateProject(), rootPath, TestContext.Current.CancellationToken);
+
+        Assert.Equal(Path.GetFullPath(rootPath), workspace.RootPath);
+        Assert.True(Directory.Exists(refDir));
+        Assert.True(File.Exists(refFile));
+        Assert.Equal("Reference material", await File.ReadAllTextAsync(refFile, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task CreateAsync_ShouldPreservePreExistingChaptersDirectory_WhenItAlreadyExists()
+    {
+        string rootPath = _temporaryWorkspace.GetPath("Existing chapters");
+        string chaptersDir = Path.Combine(rootPath, "chapters");
+        Directory.CreateDirectory(chaptersDir);
+        string manualChapter = Path.Combine(chaptersDir, "chapter_manual_01");
+        Directory.CreateDirectory(manualChapter);
+        string noteFile = Path.Combine(manualChapter, "note.txt");
+        await File.WriteAllTextAsync(noteFile, "Manual chapter note", TestContext.Current.CancellationToken);
+
+        ProjectWorkspace workspace = await new FileSystemProjectStore().CreateAsync(
+            CreateProject(), rootPath, TestContext.Current.CancellationToken);
+
+        Assert.True(Directory.Exists(chaptersDir));
+        Assert.True(Directory.Exists(manualChapter));
+        Assert.True(File.Exists(noteFile));
+        Assert.Equal("Manual chapter note", await File.ReadAllTextAsync(noteFile, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task CreateAsync_ShouldPreservePreExistingContextFiles_WhenCompatible()
+    {
+        string rootPath = _temporaryWorkspace.GetPath("Existing context");
+        string contextDir = Path.Combine(rootPath, "context");
+        Directory.CreateDirectory(contextDir);
+        string customFile = Path.Combine(contextDir, "custom_notes.txt");
+        await File.WriteAllTextAsync(customFile, "Context notes", TestContext.Current.CancellationToken);
+
+        ProjectWorkspace workspace = await new FileSystemProjectStore().CreateAsync(
+            CreateProject(), rootPath, TestContext.Current.CancellationToken);
+
+        Assert.True(File.Exists(customFile));
+        Assert.Equal("Context notes", await File.ReadAllTextAsync(customFile, TestContext.Current.CancellationToken));
+        Assert.True(File.Exists(Path.Combine(contextDir, "series.json")));
+    }
+
+    [Fact]
+    public async Task CreateAsync_ShouldRejectAndNotOverwrite_WhenPreExistingContextFileIsConflicting()
+    {
+        string rootPath = _temporaryWorkspace.GetPath("Conflicting context");
+        string contextDir = Path.Combine(rootPath, "context");
+        Directory.CreateDirectory(contextDir);
+        string seriesPath = Path.Combine(contextDir, "series.json");
+        await File.WriteAllTextAsync(seriesPath, "NOT_JSON_OR_WRONG_PROJECT", TestContext.Current.CancellationToken);
 
         ProjectOperationException exception = await Assert.ThrowsAsync<ProjectOperationException>(
             () => new FileSystemProjectStore().CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken));
 
-        Assert.Equal(ProjectErrorCode.DirectoryNotEmpty, exception.Code);
-        Assert.Equal(before, CaptureFiles(rootPath));
-        Assert.Single(Directory.EnumerateFileSystemEntries(rootPath));
+        Assert.Equal(ProjectErrorCode.InvalidProject, exception.Code);
+        Assert.Equal("NOT_JSON_OR_WRONG_PROJECT", await File.ReadAllTextAsync(seriesPath, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task CreateAsync_ShouldRejectAndNotOverwrite_WhenProjectDbIsInvalidOrConflicting()
+    {
+        string rootPath = _temporaryWorkspace.GetPath("Conflicting db");
+        Directory.CreateDirectory(rootPath);
+        string dbPath = Path.Combine(rootPath, "project.db");
+        await File.WriteAllTextAsync(dbPath, "PLAIN_TEXT_NOT_SQLITE", TestContext.Current.CancellationToken);
+
+        ProjectOperationException exception = await Assert.ThrowsAsync<ProjectOperationException>(
+            () => new FileSystemProjectStore().CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken));
+
+        Assert.Equal(ProjectErrorCode.InvalidProject, exception.Code);
+        Assert.Equal("PLAIN_TEXT_NOT_SQLITE", await File.ReadAllTextAsync(dbPath, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task CreateAsync_WhenInitializationFails_ShouldRollbackOnlyCreatedResourcesAndKeepPreExistingUserContent()
+    {
+        string rootPath = _temporaryWorkspace.GetPath("Rollback test");
+        Directory.CreateDirectory(rootPath);
+        string userFile = Path.Combine(rootPath, "user_notes.txt");
+        await File.WriteAllTextAsync(userFile, "Important user notes", TestContext.Current.CancellationToken);
+
+        string contextDir = Path.Combine(rootPath, "context");
+        Directory.CreateDirectory(contextDir);
+        string conflictingSeries = Path.Combine(contextDir, "series.json");
+        await File.WriteAllTextAsync(conflictingSeries, "CORRUPT_JSON_DATA", TestContext.Current.CancellationToken);
+
+        ProjectOperationException exception = await Assert.ThrowsAsync<ProjectOperationException>(
+            () => new FileSystemProjectStore().CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken));
+
+        Assert.True(File.Exists(userFile));
+        Assert.Equal("Important user notes", await File.ReadAllTextAsync(userFile, TestContext.Current.CancellationToken));
+        Assert.True(File.Exists(conflictingSeries));
+        Assert.Equal("CORRUPT_JSON_DATA", await File.ReadAllTextAsync(conflictingSeries, TestContext.Current.CancellationToken));
+
+        Assert.False(File.Exists(Path.Combine(rootPath, "project.db")));
     }
 
     [Fact]
@@ -208,7 +321,7 @@ public sealed class FileSystemProjectStoreTests : IDisposable
 
         Assert.Equal(ProjectErrorCode.InvalidProject, exception.Code);
         Assert.Contains("contains comic images", exception.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Import Chapter", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("not an INKLUME project", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]
