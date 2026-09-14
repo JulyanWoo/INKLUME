@@ -1,9 +1,10 @@
 using System.Windows;
 using Inklume.Desktop.ViewModels;
+using Wpf.Ui.Controls;
 
 namespace Inklume.Desktop.Views;
 
-public partial class NewProjectDialog : Window
+public partial class NewProjectDialog : FluentWindow
 {
     private readonly NewProjectDialogViewModel _viewModel;
 

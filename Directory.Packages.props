@@ -6,6 +6,7 @@
         <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
         <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.12" />
         <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.12" />
+        <PackageVersion Include="WPF-UI" Version="4.3.0" />
         <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.10.0" />
         <PackageVersion Include="xunit.v3.mtp-off" Version="3.2.2" />
         <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />

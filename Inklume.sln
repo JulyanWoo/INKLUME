@@ -1,4 +1,4 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
@@ -28,6 +28,8 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Inklume.Imaging.Tests", "tests\Inklume.Imaging.Tests\Inklume.Imaging.Tests.csproj", "{9580FDFC-37A4-41A0-8B3A-CA9FC9812D9E}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Inklume.Infrastructure.Tests", "tests\Inklume.Infrastructure.Tests\Inklume.Infrastructure.Tests.csproj", "{4DB8524C-E361-42FD-83C7-8276E865E2D4}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Inklume.Desktop.Tests", "tests\Inklume.Desktop.Tests\Inklume.Desktop.Tests.csproj", "{C61513E1-8471-40F7-874C-2DA8C45275FB}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -171,6 +173,18 @@ Global
 		{4DB8524C-E361-42FD-83C7-8276E865E2D4}.Release|x64.Build.0 = Release|Any CPU
 		{4DB8524C-E361-42FD-83C7-8276E865E2D4}.Release|x86.ActiveCfg = Release|Any CPU
 		{4DB8524C-E361-42FD-83C7-8276E865E2D4}.Release|x86.Build.0 = Release|Any CPU
+		{C61513E1-8471-40F7-874C-2DA8C45275FB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C61513E1-8471-40F7-874C-2DA8C45275FB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C61513E1-8471-40F7-874C-2DA8C45275FB}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{C61513E1-8471-40F7-874C-2DA8C45275FB}.Debug|x64.Build.0 = Debug|Any CPU
+		{C61513E1-8471-40F7-874C-2DA8C45275FB}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{C61513E1-8471-40F7-874C-2DA8C45275FB}.Debug|x86.Build.0 = Debug|Any CPU
+		{C61513E1-8471-40F7-874C-2DA8C45275FB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C61513E1-8471-40F7-874C-2DA8C45275FB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C61513E1-8471-40F7-874C-2DA8C45275FB}.Release|x64.ActiveCfg = Release|Any CPU
+		{C61513E1-8471-40F7-874C-2DA8C45275FB}.Release|x64.Build.0 = Release|Any CPU
+		{C61513E1-8471-40F7-874C-2DA8C45275FB}.Release|x86.ActiveCfg = Release|Any CPU
+		{C61513E1-8471-40F7-874C-2DA8C45275FB}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -187,5 +201,6 @@ Global
 		{CEFF04D5-896C-47DB-B0FB-B31BBDEAC3E7} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{9580FDFC-37A4-41A0-8B3A-CA9FC9812D9E} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{4DB8524C-E361-42FD-83C7-8276E865E2D4} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{C61513E1-8471-40F7-874C-2DA8C45275FB} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 	EndGlobalSection
 EndGlobal

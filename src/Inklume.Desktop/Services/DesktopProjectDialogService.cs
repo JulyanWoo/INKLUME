@@ -12,7 +12,7 @@ public sealed class DesktopProjectDialogService(IProjectFolderPicker folderPicke
         var viewModel = new NewProjectDialogViewModel(folderPicker);
         var dialog = new NewProjectDialog(viewModel)
         {
-            Owner = Application.Current.MainWindow
+            Owner = System.Windows.Application.Current.MainWindow
         };
         return dialog.ShowDialog() == true ? viewModel.Result : null;
     }
@@ -22,7 +22,7 @@ public sealed class DesktopProjectDialogService(IProjectFolderPicker folderPicke
         var viewModel = new ImportChapterDialogViewModel(folderPicker);
         var dialog = new ImportChapterDialog(viewModel)
         {
-            Owner = Application.Current.MainWindow
+            Owner = System.Windows.Application.Current.MainWindow
         };
         return dialog.ShowDialog() == true ? viewModel.Result : null;
     }

@@ -1,235 +1,171 @@
-<Window x:Class="Inklume.Desktop.Views.MainWindow"
-        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="{Binding ApplicationName}"
-        Width="1180"
-        Height="820"
-        MinWidth="900"
-        MinHeight="620"
-        WindowStartupLocation="CenterScreen"
-        Background="#F5F6F8"
-        FontFamily="Segoe UI">
-    <Window.Resources>
-        <Style TargetType="Button">
-            <Setter Property="Padding" Value="14,7" />
-            <Setter Property="MinHeight" Value="34" />
-        </Style>
-        <Style TargetType="TextBox">
-            <Setter Property="Padding" Value="7,5" />
-        </Style>
-        <Style x:Key="PanelBorder" TargetType="Border">
-            <Setter Property="Background" Value="White" />
-            <Setter Property="BorderBrush" Value="#DCE1E8" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="7" />
-            <Setter Property="Padding" Value="16" />
-        </Style>
-    </Window.Resources>
-
-    <Grid Margin="24">
+<ui:FluentWindow x:Class="Inklume.Desktop.Views.MainWindow"
+                  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                  xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+                  xmlns:views="clr-namespace:Inklume.Desktop.Views"
+                  Title="{Binding WindowTitle}"
+                  Width="1440" Height="900"
+                  MinWidth="1040" MinHeight="680"
+                  WindowStartupLocation="CenterScreen"
+                  WindowBackdropType="None"
+                  ExtendsContentIntoTitleBar="True"
+                  Background="{DynamicResource ApplicationBackgroundBrush}">
+    <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
+            <RowDefinition Height="46" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
+            <RowDefinition Height="26" />
         </Grid.RowDefinitions>
 
-        <DockPanel Margin="0,0,0,16">
-            <StackPanel>
-                <TextBlock Text="{Binding ApplicationName}" FontSize="34" FontWeight="SemiBold" Foreground="#18202F" />
-                <TextBlock Text="{Binding Subtitle}" FontSize="17" Foreground="#465367" />
-            </StackPanel>
-            <StackPanel DockPanel.Dock="Right" HorizontalAlignment="Right">
-                <TextBlock Text="{Binding CurrentWorkspace.Project.Name}" FontWeight="SemiBold"
-                           FontSize="16" HorizontalAlignment="Right" />
-                <TextBlock Text="{Binding CurrentWorkspace.Project.SeriesName}" Foreground="#465367"
-                           HorizontalAlignment="Right" />
-                <TextBlock Text="{Binding CurrentWorkspace.RootPath}" Foreground="#687487"
-                           FontSize="11" HorizontalAlignment="Right" TextTrimming="CharacterEllipsis" MaxWidth="520" />
-            </StackPanel>
-        </DockPanel>
+        <Border Background="{DynamicResource TopBarBackgroundBrush}"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" />
 
-        <Border Grid.Row="1" Style="{StaticResource PanelBorder}" Margin="0,0,0,16">
-            <Grid IsEnabled="{Binding IsIdle}">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="170" />
-                    <ColumnDefinition Width="170" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
-                <TextBlock Grid.ColumnSpan="4" Text="Project" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10" />
-                <StackPanel Grid.Row="1" Margin="0,0,10,0">
-                    <Label Content="Project _name" Target="{Binding ElementName=ProjectNameInput}" Padding="0,0,0,4" />
-                    <TextBox x:Name="ProjectNameInput" AutomationProperties.Name="Project name"
-                             Text="{Binding ProjectName, UpdateSourceTrigger=PropertyChanged}" />
-                </StackPanel>
-                <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,0,10,0">
-                    <Label Content="_Series name" Target="{Binding ElementName=SeriesNameInput}" Padding="0,0,0,4" />
-                    <TextBox x:Name="SeriesNameInput" AutomationProperties.Name="Series name"
-                             Text="{Binding SeriesName, UpdateSourceTrigger=PropertyChanged}" />
-                </StackPanel>
-                <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,0,10,0">
-                    <Label Content="Project _folder" Target="{Binding ElementName=ProjectFolderInput}" Padding="0,0,0,4" />
-                    <DockPanel>
-                        <Button DockPanel.Dock="Right" Content="_Browse..." Margin="8,0,0,0"
-                                Command="{Binding BrowseProjectFolderCommand}" />
-                        <TextBox x:Name="ProjectFolderInput" AutomationProperties.Name="Project folder"
-                                 Text="{Binding ProjectFolder, UpdateSourceTrigger=PropertyChanged}" />
-                    </DockPanel>
-                </StackPanel>
-                <StackPanel Grid.Row="1" Grid.Column="3" VerticalAlignment="Bottom" Orientation="Horizontal">
-                    <Button Content="_Create" Command="{Binding CreateProjectCommand}" Margin="0,0,8,0" />
-                    <Button Content="_Open..." Command="{Binding OpenProjectCommand}" />
-                </StackPanel>
-            </Grid>
-        </Border>
-
-        <Grid Grid.Row="2">
-            <Grid.Style>
-                <Style TargetType="Grid">
-                    <Setter Property="Visibility" Value="Visible" />
-                    <Style.Triggers>
-                        <DataTrigger Binding="{Binding CurrentWorkspace}" Value="{x:Null}">
-                            <Setter Property="Visibility" Value="Collapsed" />
-                        </DataTrigger>
-                    </Style.Triggers>
-                </Style>
-            </Grid.Style>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="240" />
-                <ColumnDefinition Width="250" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
-
-            <Border Style="{StaticResource PanelBorder}" Margin="0,0,12,0">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
-                    </Grid.RowDefinitions>
-                    <TextBlock Text="Chapters" FontSize="19" FontWeight="SemiBold" />
-                    <Grid Grid.Row="1" Margin="0,12,0,12" IsEnabled="{Binding IsIdle}">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="80" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                        </Grid.RowDefinitions>
-                        <TextBlock Text="Number" Margin="0,0,6,3" />
-                        <TextBlock Grid.Column="1" Text="Title (optional)" Margin="0,0,0,3" />
-                        <TextBox Grid.Row="1" Margin="0,0,6,0" AutomationProperties.Name="Chapter number"
-                                 Text="{Binding ChapterNumber, UpdateSourceTrigger=PropertyChanged}" />
-                        <TextBox Grid.Row="1" Grid.Column="1" AutomationProperties.Name="Chapter title"
-                                 Text="{Binding ChapterTitle, UpdateSourceTrigger=PropertyChanged}" />
-                        <Button Grid.Row="2" Grid.ColumnSpan="2" Margin="0,8,0,0" Content="_Import chapter..."
-                                Command="{Binding ImportChapterCommand}" />
-                    </Grid>
-                    <ListBox Grid.Row="2" ItemsSource="{Binding Chapters}" SelectedItem="{Binding SelectedChapter}"
-                             AutomationProperties.Name="Imported chapters">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <StackPanel Margin="3">
-                                    <TextBlock Text="{Binding Number, StringFormat=Chapter {0}}" FontWeight="SemiBold" />
-                                    <TextBlock Text="{Binding Title}" Foreground="#687487" TextTrimming="CharacterEllipsis" />
-                                </StackPanel>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-                </Grid>
-            </Border>
-
-            <Border Grid.Column="1" Style="{StaticResource PanelBorder}" Margin="0,0,12,0">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
-                    </Grid.RowDefinitions>
-                    <TextBlock Text="Pages" FontSize="19" FontWeight="SemiBold" Margin="0,0,0,12" />
-                    <ListBox Grid.Row="1" ItemsSource="{Binding Pages}" SelectedItem="{Binding SelectedPage}"
-                             VirtualizingPanel.IsVirtualizing="True"
-                             VirtualizingPanel.VirtualizationMode="Recycling"
-                             AutomationProperties.Name="Chapter pages">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <StackPanel Margin="3">
-                                    <TextBlock Text="{Binding Page.Number, StringFormat=Page {0}}" FontWeight="SemiBold" />
-                                    <TextBlock Text="{Binding Page.OriginalFileName}" Foreground="#687487"
-                                               TextTrimming="CharacterEllipsis" />
-                                </StackPanel>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-                </Grid>
-            </Border>
-
-            <Border Grid.Column="2" Style="{StaticResource PanelBorder}" Padding="10">
-                <Grid Background="#20242C">
-                    <Image Source="{Binding PreviewImage}" Stretch="Uniform" AutomationProperties.Name="Selected page preview" />
-                    <TextBlock Text="Select a page to preview it" Foreground="#DDE2EA"
-                               HorizontalAlignment="Center" VerticalAlignment="Center">
-                        <TextBlock.Style>
-                            <Style TargetType="TextBlock">
-                                <Setter Property="Visibility" Value="Collapsed" />
+        <ui:TitleBar Title=""
+                     ShowHelp="False"
+                     Height="46"
+                     Padding="16,0,0,0"
+                     Background="Transparent"
+                     ButtonsBackground="Transparent"
+                     ButtonsForeground="{DynamicResource TextPrimaryBrush}">
+            <ui:TitleBar.Header>
+                <Grid VerticalAlignment="Center">
+                    <!-- Home Header: Branding only (No IDE menus) -->
+                    <StackPanel Margin="8,0,0,0" Orientation="Horizontal" VerticalAlignment="Center"
+                                IsHitTestVisible="False">
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Visibility" Value="Visible" />
                                 <Style.Triggers>
-                                    <DataTrigger Binding="{Binding SelectedPage}" Value="{x:Null}">
-                                        <Setter Property="Visibility" Value="Visible" />
+                                    <DataTrigger Binding="{Binding IsHomeVisible}" Value="False">
+                                        <Setter Property="Visibility" Value="Collapsed" />
                                     </DataTrigger>
                                 </Style.Triggers>
                             </Style>
-                        </TextBlock.Style>
-                    </TextBlock>
-                    <TextBlock Text="{Binding PreviewErrorMessage}" Foreground="#FFD3D3" TextWrapping="Wrap"
-                               HorizontalAlignment="Center" VerticalAlignment="Center" Margin="24" />
-                </Grid>
-            </Border>
-        </Grid>
+                        </StackPanel.Style>
+                        <TextBlock Text="INKLUME" FontWeight="SemiBold" FontSize="14"
+                                   Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center" />
+                        <Border Width="1" Height="14" Background="{DynamicResource BorderBrush}" Margin="14,0" />
+                        <TextBlock Text="AI Comic Localization Studio" Style="{DynamicResource SecondaryTextStyle}"
+                                   VerticalAlignment="Center" />
+                    </StackPanel>
 
-        <StackPanel Grid.Row="2" HorizontalAlignment="Center" VerticalAlignment="Center">
-            <StackPanel.Style>
-                <Style TargetType="StackPanel">
-                    <Setter Property="Visibility" Value="Collapsed" />
-                    <Style.Triggers>
-                        <DataTrigger Binding="{Binding CurrentWorkspace}" Value="{x:Null}">
-                            <Setter Property="Visibility" Value="Visible" />
-                        </DataTrigger>
-                    </Style.Triggers>
-                </Style>
-            </StackPanel.Style>
-            <TextBlock Text="No project is open" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" />
-            <TextBlock Text="Create or open a project to import local chapters."
-                       Margin="0,6,0,0" Foreground="#687487" />
-        </StackPanel>
-
-        <StackPanel Grid.Row="3" Margin="0,12,0,0">
-            <ProgressBar Height="4" IsIndeterminate="True">
-                <ProgressBar.Style>
-                    <Style TargetType="ProgressBar">
-                        <Setter Property="Visibility" Value="Collapsed" />
-                        <Style.Triggers>
-                            <DataTrigger Binding="{Binding IsBusy}" Value="True">
+                    <!-- Workspace Header: Discrete INKLUME Brand (Return to Home) + Menus -->
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
                                 <Setter Property="Visibility" Value="Visible" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsWorkspaceVisible}" Value="False">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+
+                        <ui:Button Content="INKLUME"
+                                   Command="{Binding CloseProjectCommand}"
+                                   ToolTip="Return to Home"
+                                   Style="{DynamicResource HomeBrandButtonStyle}"
+                                   Margin="0,0,2,0" />
+
+                        <Border Width="1" Height="14"
+                                Background="{DynamicResource BorderBrush}"
+                                Margin="8,0,10,0"
+                                VerticalAlignment="Center" />
+
+                        <Menu Style="{DynamicResource TopMenuStyle}" VerticalAlignment="Center">
+                            <ui:MenuItem Header="_File">
+                                <ui:MenuItem Header="_New Project..." Command="{Binding NewProjectCommand}" />
+                                <ui:MenuItem Header="_Open Project..." Command="{Binding OpenProjectCommand}" />
+                                <Separator />
+                                <ui:MenuItem Header="_Close Project" Command="{Binding CloseProjectCommand}" />
+                                <Separator />
+                                <ui:MenuItem Header="E_xit" Command="{Binding ExitCommand}" />
+                            </ui:MenuItem>
+                            <ui:MenuItem Header="_View">
+                                <ui:MenuItem Header="_Output"
+                                             IsCheckable="True"
+                                             IsChecked="{Binding Workspace.IsOutputVisible, Mode=OneWay}"
+                                             Command="{Binding Workspace.ToggleOutputCommand}" />
+                            </ui:MenuItem>
+                            <ui:MenuItem Header="_Project">
+                                <ui:MenuItem Header="Import _Chapter..." Command="{Binding Workspace.ImportChapterCommand}" />
+                            </ui:MenuItem>
+                            <ui:MenuItem Header="_Tools">
+                                <ui:MenuItem Header="_Settings..." Command="{Binding OpenSettingsCommand}" />
+                            </ui:MenuItem>
+                            <ui:MenuItem Header="_Help">
+                                <ui:MenuItem Header="_About INKLUME" Command="{Binding ShowAboutCommand}" />
+                            </ui:MenuItem>
+                        </Menu>
+                    </StackPanel>
+                </Grid>
+            </ui:TitleBar.Header>
+        </ui:TitleBar>
+
+        <Grid Grid.Row="1">
+            <views:HomeView>
+                <views:HomeView.Style>
+                    <Style TargetType="views:HomeView">
+                        <Setter Property="Visibility" Value="Visible" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsHomeVisible}" Value="False">
+                                <Setter Property="Visibility" Value="Collapsed" />
                             </DataTrigger>
                         </Style.Triggers>
                     </Style>
-                </ProgressBar.Style>
-            </ProgressBar>
-            <DockPanel Margin="0,8,0,0">
-                <Button DockPanel.Dock="Right" Content="Cancel" Command="{Binding CancelOperationCommand}" />
-                <StackPanel>
-                    <TextBlock Text="{Binding StatusMessage}" Foreground="#465367" />
-                    <TextBlock Text="{Binding ImportProgressMessage}" Foreground="#465367" />
-                    <TextBlock Text="{Binding WarningMessage}" Foreground="#7A5A00" TextWrapping="Wrap" />
-                    <TextBlock Text="{Binding ErrorMessage}" Foreground="#842B2B" TextWrapping="Wrap" />
+                </views:HomeView.Style>
+            </views:HomeView>
+            <views:WorkspaceView DataContext="{Binding Workspace}">
+                <views:WorkspaceView.Style>
+                    <Style TargetType="views:WorkspaceView">
+                        <Setter Property="Visibility" Value="Visible" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding DataContext.IsWorkspaceVisible,
+                                RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}" Value="False">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </views:WorkspaceView.Style>
+            </views:WorkspaceView>
+        </Grid>
+
+        <StatusBar Grid.Row="2">
+            <StatusBarItem Margin="4,0,0,0">
+                <TextBlock Text="{Binding CurrentStatusMessage}" Foreground="{DynamicResource TextSecondaryBrush}" />
+            </StatusBarItem>
+            <StatusBarItem Visibility="{Binding IsBusy, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <ProgressBar Width="74" Height="2" IsIndeterminate="True" />
+            </StatusBarItem>
+            <StatusBarItem Visibility="{Binding IsCancellationAvailable,
+                Converter={StaticResource BooleanToVisibilityConverter}}">
+                <ui:Button Icon="{ui:SymbolIcon Dismiss20}"
+                           Appearance="Transparent"
+                           Command="{Binding CancelOperationCommand}"
+                           ToolTip="Cancel current operation"
+                           Padding="4,0" MinHeight="22" />
+            </StatusBarItem>
+            <StatusBarItem HorizontalAlignment="Right" Margin="0,0,8,0"
+                           Visibility="{Binding IsWorkspaceVisible,
+                           Converter={StaticResource BooleanToVisibilityConverter}}">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <ui:Button Icon="{ui:SymbolIcon Subtract16}"
+                               Style="{DynamicResource StatusZoomButtonStyle}"
+                               Command="{Binding Workspace.VisualEditor.ZoomOutCommand}"
+                               ToolTip="Zoom Out" />
+                    <ui:Button Content="{Binding Workspace.VisualEditor.ZoomPercentDisplay}"
+                               Appearance="Transparent"
+                               Command="{Binding Workspace.VisualEditor.ResetZoomCommand}"
+                               ToolTip="Reset Zoom"
+                               Padding="6,0" MinWidth="46" Height="22"
+                               Foreground="{DynamicResource TextSecondaryBrush}" />
+                    <ui:Button Icon="{ui:SymbolIcon Add16}"
+                               Style="{DynamicResource StatusZoomButtonStyle}"
+                               Command="{Binding Workspace.VisualEditor.ZoomInCommand}"
+                               ToolTip="Zoom In" />
                 </StackPanel>
-            </DockPanel>
-        </StackPanel>
+            </StatusBarItem>
+        </StatusBar>
     </Grid>
-</Window>
+</ui:FluentWindow>

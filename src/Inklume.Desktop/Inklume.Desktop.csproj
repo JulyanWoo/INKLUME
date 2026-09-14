@@ -6,6 +6,7 @@
     </PropertyGroup>
     <ItemGroup>
         <PackageReference Include="CommunityToolkit.Mvvm" />
+        <PackageReference Include="WPF-UI" />
     </ItemGroup>
     <ItemGroup>
         <ProjectReference Include="..\Inklume.Application\Inklume.Application.csproj" />

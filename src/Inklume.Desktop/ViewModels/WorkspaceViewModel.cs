@@ -1,11 +1,12 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Windows.Media;
+using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Inklume.Application.Chapters;
 using Inklume.Application.Projects;
+using Inklume.Application.TextRegions;
 using Inklume.Desktop.Services;
 using Inklume.Domain.Projects;
 
@@ -16,11 +17,10 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     private readonly ChapterService _chapterService;
     private readonly ILocalChapterSourceProvider _localChapterSourceProvider;
     private readonly IProjectDialogService _dialogService;
-    private readonly IPagePreviewLoader _previewLoader;
     private CancellationTokenSource? _operationCancellation;
     private CancellationTokenSource? _selectionCancellation;
     private Task _selectionTask = Task.CompletedTask;
-    private ProjectExplorerNode? _activeNode;
+    private ProjectExplorerNode? _selectedExplorerNode;
     private bool _isStopping;
 
     [ObservableProperty]
@@ -37,18 +37,18 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     private bool _isBusy;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SelectedChapterNumber))]
     private Chapter? _selectedChapter;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasSelectedPage))]
+    [NotifyPropertyChangedFor(nameof(SelectedPageNumber))]
+    [NotifyPropertyChangedFor(nameof(SelectedOriginalFileName))]
+    [NotifyPropertyChangedFor(nameof(SelectedInternalFileName))]
+    [NotifyPropertyChangedFor(nameof(SelectedRelativePath))]
+    [NotifyPropertyChangedFor(nameof(SelectedContentHash))]
+    [NotifyPropertyChangedFor(nameof(SelectedPixelDimensions))]
     private PageWorkspace? _selectedPage;
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasPreview))]
-    private ImageSource? _previewImage;
-
-    [ObservableProperty]
-    private string _previewErrorMessage = string.Empty;
 
     [ObservableProperty]
     private string _statusMessage = "Project loaded.";
@@ -62,34 +62,60 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     [ObservableProperty]
     private string _errorMessage = string.Empty;
 
+    public ProjectExplorerNode? SelectedExplorerNode
+    {
+        get => _selectedExplorerNode;
+        private set
+        {
+            if (ReferenceEquals(_selectedExplorerNode, value))
+            {
+                return;
+            }
+
+            if (_selectedExplorerNode is not null)
+            {
+                _selectedExplorerNode.IsSelected = false;
+            }
+
+            _selectedExplorerNode = value;
+
+            if (_selectedExplorerNode is not null)
+            {
+                _selectedExplorerNode.IsSelected = true;
+            }
+
+            OnPropertyChanged();
+        }
+    }
+
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(ZoomInCommand))]
-    [NotifyCanExecuteChangedFor(nameof(ZoomOutCommand))]
-    private int _zoomPercent = 100;
+    private bool _isOutputVisible;
 
     public WorkspaceViewModel(
         ProjectWorkspace workspace,
         ChapterService chapterService,
         ILocalChapterSourceProvider localChapterSourceProvider,
         IProjectDialogService dialogService,
+        TextRegionService textRegionService,
         IPagePreviewLoader previewLoader)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(chapterService);
         ArgumentNullException.ThrowIfNull(localChapterSourceProvider);
         ArgumentNullException.ThrowIfNull(dialogService);
+        ArgumentNullException.ThrowIfNull(textRegionService);
         ArgumentNullException.ThrowIfNull(previewLoader);
         _workspace = workspace;
         _chapterService = chapterService;
         _localChapterSourceProvider = localChapterSourceProvider;
         _dialogService = dialogService;
-        _previewLoader = previewLoader;
+        VisualEditor = new VisualEditorViewModel(
+            workspace, chapterService, textRegionService, previewLoader);
+        VisualEditor.PropertyChanged += OnVisualEditorPropertyChanged;
 
         ImportChapterCommand = new AsyncRelayCommand(ImportChapterAsync, () => IsIdle);
         CancelOperationCommand = new RelayCommand(CancelOperation, () => IsCancellationAvailable);
-        ZoomInCommand = new RelayCommand(() => ZoomPercent += 10, () => ZoomPercent < 200);
-        ZoomOutCommand = new RelayCommand(() => ZoomPercent -= 10, () => ZoomPercent > 30);
-        ResetZoomCommand = new RelayCommand(() => ZoomPercent = 100);
+        ToggleOutputCommand = new RelayCommand(() => IsOutputVisible = !IsOutputVisible);
     }
 
     public string ProjectName => Workspace.Project.Name;
@@ -105,9 +131,27 @@ public sealed partial class WorkspaceViewModel : ObservableObject
 
     public bool HasSelectedPage => SelectedPage is not null;
 
-    public bool HasPreview => PreviewImage is not null;
+    public bool HasChapters => ExplorerRoots
+        .SelectMany(node => node.Children)
+        .Any(node => node.Kind == ExplorerNodeKind.Chapters && node.Children.Count > 0);
 
-    public double ZoomScale => ZoomPercent / 100d;
+    public string SelectedChapterNumber => SelectedChapter?.Number.ToString() ?? string.Empty;
+
+    public string SelectedPageNumber => SelectedPage?.Page.Number.ToString() ?? string.Empty;
+
+    public string SelectedOriginalFileName => SelectedPage?.Page.OriginalFileName ?? string.Empty;
+
+    public string SelectedInternalFileName => SelectedPage is null
+        ? string.Empty
+        : Path.GetFileName(SelectedPage.Page.RelativePath);
+
+    public string SelectedRelativePath => SelectedPage?.Page.RelativePath ?? string.Empty;
+
+    public string SelectedContentHash => SelectedPage?.Page.ContentHash ?? string.Empty;
+
+    public string SelectedPixelDimensions => SelectedPage?.Page is { PixelWidth: { } width, PixelHeight: { } height }
+        ? $"{width} x {height}"
+        : "Not resolved";
 
     public ObservableCollection<ProjectExplorerNode> ExplorerRoots { get; } = [];
 
@@ -117,11 +161,9 @@ public sealed partial class WorkspaceViewModel : ObservableObject
 
     public IRelayCommand CancelOperationCommand { get; }
 
-    public IRelayCommand ZoomInCommand { get; }
+    public IRelayCommand ToggleOutputCommand { get; }
 
-    public IRelayCommand ZoomOutCommand { get; }
-
-    public IRelayCommand ResetZoomCommand { get; }
+    public VisualEditorViewModel VisualEditor { get; }
 
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
@@ -132,12 +174,12 @@ public sealed partial class WorkspaceViewModel : ObservableObject
 
     public Task SelectExplorerNodeAsync(ProjectExplorerNode? node)
     {
-        if (node is null || ReferenceEquals(node, _activeNode) || _isStopping)
+        if (node is null || ReferenceEquals(node, SelectedExplorerNode) || _isStopping)
         {
             return Task.CompletedTask;
         }
 
-        _activeNode = node;
+        SelectedExplorerNode = node;
         _selectionTask = SelectExplorerNodeCoreAsync(node);
         return _selectionTask;
     }
@@ -150,13 +192,10 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         CancelOperation();
         await CancelSelectionAsync();
         await Task.WhenAll(ImportChapterCommand.ExecutionTask ?? Task.CompletedTask, _selectionTask);
+        VisualEditor.Clear();
         ClearSelection();
         ExplorerRoots.Clear();
-    }
-
-    partial void OnZoomPercentChanged(int value)
-    {
-        OnPropertyChanged(nameof(ZoomScale));
+        OnPropertyChanged(nameof(HasChapters));
     }
 
     private async Task ImportChapterAsync()
@@ -250,15 +289,26 @@ public sealed partial class WorkspaceViewModel : ObservableObject
 
         projectNode.Children.Add(chaptersNode);
         ExplorerRoots.Add(projectNode);
+        OnPropertyChanged(nameof(HasChapters));
 
-        ProjectExplorerNode? selectedNode = selectedChapterId.HasValue
+        ProjectExplorerNode? selectedChapterNode = selectedChapterId.HasValue
             ? chaptersNode.Children.FirstOrDefault(node => node.Chapter?.Id == selectedChapterId.Value)
             : chaptersNode.Children.FirstOrDefault();
-        if (selectedNode is not null)
+        if (selectedChapterNode is not null)
         {
-            selectedNode.IsSelected = true;
-            _activeNode = selectedNode;
-            await LoadChapterAsync(selectedNode, cancellationToken);
+            await PopulateChapterPagesAsync(selectedChapterNode, cancellationToken);
+            selectedChapterNode.IsExpanded = true;
+            ProjectExplorerNode? firstPage = selectedChapterNode.Children.FirstOrDefault();
+            if (firstPage is not null)
+            {
+                SelectedExplorerNode = firstPage;
+                await LoadPageAsync(firstPage, cancellationToken);
+            }
+            else
+            {
+                SelectedExplorerNode = selectedChapterNode;
+                SelectChapterMetadata(selectedChapterNode);
+            }
         }
     }
 
@@ -273,20 +323,23 @@ public sealed partial class WorkspaceViewModel : ObservableObject
             switch (node.Kind)
             {
                 case ExplorerNodeKind.Chapter:
-                    await LoadChapterAsync(node, cancellation.Token);
+                    await SelectChapterNodeAsync(node, cancellation.Token);
                     break;
                 case ExplorerNodeKind.Page:
                     await LoadPageAsync(node, cancellation.Token);
                     break;
                 default:
-                    ClearSelection();
+                    ClearSelectionData();
                     StatusMessage = "Project loaded.";
                     break;
             }
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
-            StatusMessage = "Selection loading cancelled.";
+            if (ReferenceEquals(_selectionCancellation, cancellation))
+            {
+                StatusMessage = "Selection loading cancelled.";
+            }
         }
         catch (Exception exception)
         {
@@ -306,34 +359,37 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         }
     }
 
-    private async Task LoadChapterAsync(ProjectExplorerNode node, CancellationToken cancellationToken)
+    private async Task SelectChapterNodeAsync(ProjectExplorerNode node, CancellationToken cancellationToken)
+    {
+        SelectChapterMetadata(node);
+        if (node.Children.Count == 0)
+        {
+            await PopulateChapterPagesAsync(node, cancellationToken);
+        }
+
+        node.IsExpanded = true;
+    }
+
+    private void SelectChapterMetadata(ProjectExplorerNode node)
     {
         Chapter chapter = node.Chapter
             ?? throw new InvalidOperationException("The explorer chapter node has no chapter metadata.");
-        StatusMessage = $"Loading chapter {chapter.Number}...";
+        StatusMessage = $"Chapter {chapter.Number} selected.";
         SelectedChapter = chapter;
         SelectedPage = null;
-        PreviewImage = null;
-        PreviewErrorMessage = string.Empty;
+        VisualEditor.Clear();
+    }
+
+    private async Task PopulateChapterPagesAsync(ProjectExplorerNode node, CancellationToken cancellationToken)
+    {
+        Chapter chapter = node.Chapter
+            ?? throw new InvalidOperationException("The explorer chapter node has no chapter metadata.");
         IReadOnlyList<PageWorkspace> pages = await Task.Run(
             () => _chapterService.GetPagesAsync(Workspace, chapter.Id, cancellationToken), cancellationToken);
         node.Children.Clear();
         foreach (PageWorkspace page in pages)
         {
             node.Children.Add(ProjectExplorerNode.CreatePage(chapter, page));
-        }
-
-        node.IsExpanded = true;
-        ProjectExplorerNode? firstPage = node.Children.FirstOrDefault();
-        if (firstPage is not null)
-        {
-            _activeNode = firstPage;
-            firstPage.IsSelected = true;
-            await LoadPageAsync(firstPage, cancellationToken);
-        }
-        else
-        {
-            StatusMessage = $"Chapter {chapter.Number} has no pages.";
         }
     }
 
@@ -343,14 +399,11 @@ public sealed partial class WorkspaceViewModel : ObservableObject
             ?? throw new InvalidOperationException("The explorer page node has no page metadata.");
         SelectedChapter = node.Chapter;
         SelectedPage = page;
-        PreviewImage = null;
-        PreviewErrorMessage = string.Empty;
-        ZoomPercent = 100;
         StatusMessage = $"Loading page {page.Page.Number}...";
         try
         {
-            PreviewImage = await _previewLoader.LoadAsync(page.FilePath, cancellationToken);
-            StatusMessage = $"Page {page.Page.Number} loaded.";
+            SelectedPage = await VisualEditor.LoadPageAsync(page, cancellationToken);
+            StatusMessage = VisualEditor.StatusMessage;
             AddOutput($"Page {page.Page.Number} loaded from chapter {node.Chapter?.Number}.");
         }
         catch (OperationCanceledException)
@@ -360,7 +413,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         catch (Exception exception)
         {
             Trace.TraceError("Loading page preview failed: {0}", exception);
-            PreviewErrorMessage = "This page could not be previewed. The imported file was not modified.";
+            VisualEditor.ReportInteractionError(exception);
             StatusMessage = "Page preview unavailable.";
         }
     }
@@ -389,12 +442,15 @@ public sealed partial class WorkspaceViewModel : ObservableObject
 
     private void ClearSelection()
     {
-        _activeNode = null;
+        SelectedExplorerNode = null;
+        ClearSelectionData();
+    }
+
+    private void ClearSelectionData()
+    {
         SelectedChapter = null;
         SelectedPage = null;
-        PreviewImage = null;
-        PreviewErrorMessage = string.Empty;
-        ZoomPercent = 100;
+        VisualEditor.Clear();
     }
 
     private void ClearMessages()
@@ -430,5 +486,20 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         StatusMessage = "The project operation could not be completed.";
         ProgressMessage = string.Empty;
         AddOutput(message);
+    }
+
+    private void OnVisualEditorPropertyChanged(object? sender, PropertyChangedEventArgs eventArgs)
+    {
+        if (eventArgs.PropertyName == nameof(VisualEditorViewModel.StatusMessage)
+            && !string.IsNullOrWhiteSpace(VisualEditor.StatusMessage))
+        {
+            StatusMessage = VisualEditor.StatusMessage;
+        }
+
+        if (eventArgs.PropertyName == nameof(VisualEditorViewModel.ErrorMessage)
+            && !string.IsNullOrWhiteSpace(VisualEditor.ErrorMessage))
+        {
+            ErrorMessage = VisualEditor.ErrorMessage;
+        }
     }
 }

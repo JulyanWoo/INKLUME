@@ -7,11 +7,21 @@ namespace Inklume.Desktop.Services;
 public sealed class WpfPagePreviewLoader : IPagePreviewLoader
 {
     private const int PreviewDecodeWidth = 1600;
+    private const int MaximumDecodedPixels = 8_000_000;
 
-    public Task<ImageSource> LoadAsync(string filePath, CancellationToken cancellationToken)
+    public Task<PagePreview> LoadAsync(
+        string filePath,
+        int rawPixelWidth,
+        int rawPixelHeight,
+        CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
-        return Task.Run<ImageSource>(() =>
+        if (rawPixelWidth <= 0 || rawPixelHeight <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(rawPixelWidth), "RAW image dimensions must be positive.");
+        }
+
+        return Task.Run(() =>
         {
             cancellationToken.ThrowIfCancellationRequested();
             using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
@@ -19,12 +29,17 @@ public sealed class WpfPagePreviewLoader : IPagePreviewLoader
             image.BeginInit();
             image.CacheOption = BitmapCacheOption.OnLoad;
             image.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
-            image.DecodePixelWidth = PreviewDecodeWidth;
+            double pixelBudgetScale = Math.Sqrt(MaximumDecodedPixels / ((double)rawPixelWidth * rawPixelHeight));
+            double scale = Math.Min(1, Math.Min((double)PreviewDecodeWidth / rawPixelWidth, pixelBudgetScale));
+            if (scale < 1)
+            {
+                image.DecodePixelWidth = Math.Max(1, (int)Math.Round(rawPixelWidth * scale));
+            }
             image.StreamSource = stream;
             image.EndInit();
             image.Freeze();
             cancellationToken.ThrowIfCancellationRequested();
-            return image;
+            return new PagePreview(image, image.PixelWidth, image.PixelHeight);
         }, cancellationToken);
     }
 }

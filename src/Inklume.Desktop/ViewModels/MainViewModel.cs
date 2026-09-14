@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Inklume.Application.Chapters;
 using Inklume.Application.Projects;
+using Inklume.Application.TextRegions;
 using Inklume.Desktop.Services;
 
 namespace Inklume.Desktop.ViewModels;
@@ -15,6 +16,8 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly ChapterService _chapterService;
     private readonly ILocalChapterSourceProvider _localChapterSourceProvider;
     private readonly IProjectDialogService _dialogService;
+    private readonly IApplicationDialogService _applicationDialogService;
+    private readonly TextRegionService _textRegionService;
     private readonly IPagePreviewLoader _previewLoader;
     private CancellationTokenSource? _operationCancellation;
     private bool _isClosing;
@@ -22,6 +25,7 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsHomeVisible))]
     [NotifyPropertyChangedFor(nameof(IsWorkspaceVisible))]
+    [NotifyPropertyChangedFor(nameof(WindowTitle))]
     [NotifyPropertyChangedFor(nameof(CurrentStatusMessage))]
     [NotifyPropertyChangedFor(nameof(CurrentProgressMessage))]
     [NotifyPropertyChangedFor(nameof(CurrentWarningMessage))]
@@ -35,6 +39,7 @@ public sealed partial class MainViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsBusy))]
     [NotifyPropertyChangedFor(nameof(IsCancellationAvailable))]
     [NotifyPropertyChangedFor(nameof(CurrentStatusMessage))]
+    [NotifyPropertyChangedFor(nameof(HasStatusDetails))]
     [NotifyCanExecuteChangedFor(nameof(NewProjectCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenProjectCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenRecentProjectCommand))]
@@ -46,6 +51,9 @@ public sealed partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CurrentErrorMessage))]
+    [NotifyPropertyChangedFor(nameof(CurrentStatusMessage))]
+    [NotifyPropertyChangedFor(nameof(HasErrorMessage))]
+    [NotifyPropertyChangedFor(nameof(HasStatusDetails))]
     private string _errorMessage = string.Empty;
 
     public MainViewModel(
@@ -53,17 +61,23 @@ public sealed partial class MainViewModel : ObservableObject
         ChapterService chapterService,
         ILocalChapterSourceProvider localChapterSourceProvider,
         IProjectDialogService dialogService,
+        IApplicationDialogService applicationDialogService,
+        TextRegionService textRegionService,
         IPagePreviewLoader previewLoader)
     {
         ArgumentNullException.ThrowIfNull(projectService);
         ArgumentNullException.ThrowIfNull(chapterService);
         ArgumentNullException.ThrowIfNull(localChapterSourceProvider);
         ArgumentNullException.ThrowIfNull(dialogService);
+        ArgumentNullException.ThrowIfNull(applicationDialogService);
+        ArgumentNullException.ThrowIfNull(textRegionService);
         ArgumentNullException.ThrowIfNull(previewLoader);
         _projectService = projectService;
         _chapterService = chapterService;
         _localChapterSourceProvider = localChapterSourceProvider;
         _dialogService = dialogService;
+        _applicationDialogService = applicationDialogService;
+        _textRegionService = textRegionService;
         _previewLoader = previewLoader;
 
         NewProjectCommand = new AsyncRelayCommand(NewProjectAsync, CanBeginProjectOperation);
@@ -71,6 +85,9 @@ public sealed partial class MainViewModel : ObservableObject
         OpenRecentProjectCommand = new AsyncRelayCommand<RecentProjectViewModel>(OpenRecentProjectAsync, CanOpenRecentProject);
         CloseProjectCommand = new AsyncRelayCommand(CloseProjectAsync, () => Workspace is not null);
         CancelOperationCommand = new RelayCommand(CancelOperation, () => IsCancellationAvailable);
+        DismissErrorCommand = new RelayCommand(() => ErrorMessage = string.Empty);
+        OpenSettingsCommand = new RelayCommand(OpenSettings);
+        ShowAboutCommand = new RelayCommand(ShowAbout);
         ExitCommand = new RelayCommand(() => ExitRequested?.Invoke(this, EventArgs.Empty));
     }
 
@@ -80,24 +97,35 @@ public sealed partial class MainViewModel : ObservableObject
 
     public string Subtitle { get; } = "AI Comic Localization Studio";
 
+    public string WindowTitle => Workspace is null ? ApplicationName : $"{Workspace.ProjectName} - {ApplicationName}";
+
     public bool IsHomeVisible => Workspace is null;
 
     public bool IsWorkspaceVisible => Workspace is not null;
 
     public bool HasRecentProjects => RecentProjects.Count > 0;
 
+    public bool HasErrorMessage => !string.IsNullOrEmpty(ErrorMessage);
+
     public bool IsBusy => IsShellBusy || Workspace?.IsBusy == true;
 
     public bool IsCancellationAvailable => (_operationCancellation is { IsCancellationRequested: false })
         || Workspace?.IsCancellationAvailable == true;
 
-    public string CurrentStatusMessage => IsShellBusy ? StatusMessage : Workspace?.StatusMessage ?? StatusMessage;
+    public string CurrentStatusMessage => !string.IsNullOrEmpty(CurrentErrorMessage)
+        ? CurrentErrorMessage
+        : (IsShellBusy ? StatusMessage : Workspace?.StatusMessage ?? StatusMessage);
 
     public string CurrentProgressMessage => Workspace?.ProgressMessage ?? string.Empty;
 
     public string CurrentWarningMessage => Workspace?.WarningMessage ?? string.Empty;
 
     public string CurrentErrorMessage => Workspace?.ErrorMessage ?? ErrorMessage;
+
+    public bool HasStatusDetails => IsBusy
+        || !string.IsNullOrEmpty(CurrentProgressMessage)
+        || !string.IsNullOrEmpty(CurrentWarningMessage)
+        || !string.IsNullOrEmpty(CurrentErrorMessage);
 
     public ObservableCollection<RecentProjectViewModel> RecentProjects { get; } = [];
 
@@ -110,6 +138,12 @@ public sealed partial class MainViewModel : ObservableObject
     public IAsyncRelayCommand CloseProjectCommand { get; }
 
     public IRelayCommand CancelOperationCommand { get; }
+
+    public IRelayCommand DismissErrorCommand { get; }
+
+    public IRelayCommand OpenSettingsCommand { get; }
+
+    public IRelayCommand ShowAboutCommand { get; }
 
     public IRelayCommand ExitCommand { get; }
 
@@ -237,6 +271,7 @@ public sealed partial class MainViewModel : ObservableObject
                 _chapterService,
                 _localChapterSourceProvider,
                 _dialogService,
+                _textRegionService,
                 _previewLoader);
             await workspace.InitializeAsync(cancellation.Token);
             AddRecentProject(projectWorkspace);
@@ -299,6 +334,30 @@ public sealed partial class MainViewModel : ObservableObject
         NotifyShellStateChanged();
     }
 
+    private void OpenSettings()
+    {
+        try
+        {
+            _applicationDialogService.ShowSettingsDialog();
+        }
+        catch (Exception exception)
+        {
+            ReportUnexpectedError(exception, "Settings could not be opened. Please try again.");
+        }
+    }
+
+    private void ShowAbout()
+    {
+        try
+        {
+            _applicationDialogService.ShowAboutDialog();
+        }
+        catch (Exception exception)
+        {
+            ReportUnexpectedError(exception, "About INKLUME could not be opened. Please try again.");
+        }
+    }
+
     private void AddRecentProject(ProjectWorkspace workspace)
     {
         RecentProjectViewModel? existing = RecentProjects.FirstOrDefault(project => project.ProjectId == workspace.Project.Id);
@@ -334,6 +393,7 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(CurrentProgressMessage));
         OnPropertyChanged(nameof(CurrentWarningMessage));
         OnPropertyChanged(nameof(CurrentErrorMessage));
+        OnPropertyChanged(nameof(HasStatusDetails));
         NotifyCommandStates();
     }
 

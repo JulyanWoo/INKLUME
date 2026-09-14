@@ -1,0 +1,57 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- Colors -->
+    <Color x:Key="ApplicationBackgroundColor">#1A1026</Color>
+    <Color x:Key="TopBarBackgroundColor">#130A1D</Color>
+    <Color x:Key="SidebarBackgroundColor">#231534</Color>
+    <Color x:Key="PanelBackgroundColor">#301D47</Color>
+    <Color x:Key="PanelBackgroundSecondaryColor">#3D255A</Color>
+    <Color x:Key="EditorBackgroundColor">#12091C</Color>
+    <Color x:Key="CardBackgroundColor">#321E4B</Color>
+    <Color x:Key="CardHoverBackgroundColor">#452A66</Color>
+    <Color x:Key="SelectedBackgroundColor">#583582</Color>
+    <Color x:Key="BorderColor">#4C2F73</Color>
+    <Color x:Key="BorderLightColor">#6C44A2</Color>
+    <Color x:Key="TextPrimaryColor">#FAF2FF</Color>
+    <Color x:Key="TextSecondaryColor">#D0B7E5</Color>
+    <Color x:Key="TextMutedColor">#9174A8</Color>
+    <Color x:Key="AccentColor">#B25BFF</Color>
+    <Color x:Key="AccentHoverColor">#C084FC</Color>
+    <Color x:Key="AccentPressedColor">#9333EA</Color>
+    <Color x:Key="SuccessColor">#34D399</Color>
+    <Color x:Key="WarningColor">#FBBF24</Color>
+    <Color x:Key="ErrorColor">#FB7185</Color>
+    <Color x:Key="TransparentColor">Transparent</Color>
+
+    <!-- Semantic Brushes -->
+    <SolidColorBrush x:Key="ApplicationBackgroundBrush" Color="#1A1026" />
+    <SolidColorBrush x:Key="TopBarBackgroundBrush" Color="#130A1D" />
+    <SolidColorBrush x:Key="SidebarBackgroundBrush" Color="#231534" />
+    <SolidColorBrush x:Key="PanelBackgroundBrush" Color="#301D47" />
+    <SolidColorBrush x:Key="PanelBackgroundSecondaryBrush" Color="#3D255A" />
+    <SolidColorBrush x:Key="EditorBackgroundBrush" Color="#12091C" />
+    <SolidColorBrush x:Key="CardBackgroundBrush" Color="#321E4B" />
+    <SolidColorBrush x:Key="CardHoverBackgroundBrush" Color="#452A66" />
+    <SolidColorBrush x:Key="SelectedBackgroundBrush" Color="#583582" />
+    <SolidColorBrush x:Key="BorderBrush" Color="#4C2F73" />
+    <SolidColorBrush x:Key="BorderLightBrush" Color="#6C44A2" />
+    <SolidColorBrush x:Key="TextPrimaryBrush" Color="#FAF2FF" />
+    <SolidColorBrush x:Key="TextSecondaryBrush" Color="#D0B7E5" />
+    <SolidColorBrush x:Key="TextMutedBrush" Color="#9174A8" />
+    <SolidColorBrush x:Key="AccentBrush" Color="#B25BFF" />
+    <SolidColorBrush x:Key="AccentHoverBrush" Color="#C084FC" />
+    <SolidColorBrush x:Key="AccentPressedBrush" Color="#9333EA" />
+    <SolidColorBrush x:Key="TextOnAccentBrush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="AccentButtonForeground" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="AccentButtonForegroundPointerOver" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="AccentButtonBackground" Color="#B25BFF" />
+    <SolidColorBrush x:Key="AccentButtonBackgroundPointerOver" Color="#C084FC" />
+    <SolidColorBrush x:Key="AccentButtonBackgroundPressed" Color="#9333EA" />
+    <SolidColorBrush x:Key="AccentButtonBorderBrush" Color="#B25BFF" />
+    <SolidColorBrush x:Key="ControlElevationAccentBrush" Color="#B25BFF" />
+    <SolidColorBrush x:Key="SystemAccentBrush" Color="#B25BFF" />
+    <SolidColorBrush x:Key="SuccessBrush" Color="#34D399" />
+    <SolidColorBrush x:Key="WarningBrush" Color="#FBBF24" />
+    <SolidColorBrush x:Key="ErrorBrush" Color="#FB7185" />
+    <SolidColorBrush x:Key="TransparentBrush" Color="Transparent" />
+</ResourceDictionary>

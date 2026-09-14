@@ -1,0 +1,253 @@
+<UserControl x:Class="Inklume.Desktop.Views.WorkspaceView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+             xmlns:views="clr-namespace:Inklume.Desktop.Views"
+             xmlns:viewModels="clr-namespace:Inklume.Desktop.ViewModels">
+    <UserControl.Resources>
+        <HierarchicalDataTemplate DataType="{x:Type viewModels:ProjectExplorerNode}"
+                                  ItemsSource="{Binding Children}"
+                                  ItemContainerStyle="{StaticResource ProjectExplorerItemStyle}">
+            <Border CornerRadius="3"
+                    Padding="4,3"
+                    Margin="1,0"
+                    HorizontalAlignment="Stretch">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Background" Value="Transparent" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                <Setter Property="Background" Value="{DynamicResource SelectedBackgroundBrush}" />
+                            </DataTrigger>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding RelativeSource={RelativeSource Self}, Path=IsMouseOver}" Value="True" />
+                                    <Condition Binding="{Binding IsSelected}" Value="False" />
+                                </MultiDataTrigger.Conditions>
+                                <Setter Property="Background" Value="{DynamicResource CardHoverBackgroundBrush}" />
+                            </MultiDataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="3" />
+                        <ColumnDefinition Width="22" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Border Width="2" Height="16" CornerRadius="1"
+                            HorizontalAlignment="Left"
+                            Background="{DynamicResource AccentBrush}"
+                            Visibility="{Binding IsSelected,
+                            Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    <ui:SymbolIcon Grid.Column="1" Style="{DynamicResource ProjectExplorerIconStyle}"
+                                   VerticalAlignment="Center" />
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding DisplayName}" Foreground="{DynamicResource TextPrimaryBrush}"
+                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding SecondaryText}" Margin="8,0,0,0"
+                                   Style="{DynamicResource CaptionTextStyle}" TextTrimming="CharacterEllipsis"
+                                   VerticalAlignment="Center" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </HierarchicalDataTemplate>
+    </UserControl.Resources>
+
+    <Grid Background="{DynamicResource ApplicationBackgroundBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="252" MinWidth="210" />
+                <ColumnDefinition Width="3" />
+                <ColumnDefinition Width="*" MinWidth="380" />
+                <ColumnDefinition Width="3" />
+                <ColumnDefinition Width="284" MinWidth="230" />
+            </Grid.ColumnDefinitions>
+
+            <Grid Background="{DynamicResource SidebarBackgroundBrush}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="38" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
+                    <Grid Margin="12,0,6,0">
+                        <TextBlock Text="PROJECT EXPLORER" Style="{DynamicResource CaptionTextStyle}"
+                                   FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <ui:Button HorizontalAlignment="Right"
+                                   Style="{DynamicResource ToolbarButtonStyle}"
+                                   Icon="{ui:SymbolIcon FolderAdd24}"
+                                   Command="{Binding ImportChapterCommand}"
+                                   ToolTip="Import chapter" />
+                    </Grid>
+                </Border>
+                <Grid Grid.Row="1">
+                    <TreeView x:Name="ProjectExplorer"
+                              ItemsSource="{Binding ExplorerRoots}"
+                              ItemContainerStyle="{StaticResource ProjectExplorerItemStyle}"
+                              SelectedItemChanged="OnExplorerSelectionChanged"
+                              Background="Transparent" BorderThickness="0" Padding="5"
+                              AutomationProperties.Name="Project explorer" />
+                    <StackPanel Margin="18,0,18,20" VerticalAlignment="Bottom">
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasChapters}" Value="False">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+                        <TextBlock Text="No chapters imported" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextPrimaryBrush}" />
+                        <TextBlock Text="Use Import Chapter to add a local image folder."
+                                   Style="{DynamicResource CaptionTextStyle}" TextWrapping="Wrap"
+                                   Margin="0,5,0,0" />
+                    </StackPanel>
+                </Grid>
+            </Grid>
+
+            <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" ResizeDirection="Columns" />
+
+            <views:VisualEditorView Grid.Column="2" DataContext="{Binding VisualEditor}" />
+
+            <GridSplitter Grid.Column="3" HorizontalAlignment="Stretch" ResizeDirection="Columns" />
+
+            <Grid Grid.Column="4" Background="{DynamicResource PanelBackgroundBrush}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="38" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
+                    <TextBlock Text="INSPECTOR" Style="{DynamicResource CaptionTextStyle}"
+                               FontWeight="SemiBold" VerticalAlignment="Center" Margin="12,0" />
+                </Border>
+                <Grid Grid.Row="1" Margin="16,14">
+                    <StackPanel>
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Visibility" Value="Visible" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasSelectedPage}" Value="False">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding VisualEditor.HasSelectedRegion}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+                        <TextBlock Text="Page" Style="{DynamicResource SectionTitleTextStyle}" Margin="0,0,0,16" />
+                        <TextBlock Text="Chapter" Style="{DynamicResource CaptionTextStyle}" />
+                        <TextBlock Text="{Binding SelectedChapterNumber}" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,2,0,11" />
+                        <TextBlock Text="Page order" Style="{DynamicResource CaptionTextStyle}" />
+                        <TextBlock Text="{Binding SelectedPageNumber}" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,2,0,11" />
+                        <TextBlock Text="RAW dimensions" Style="{DynamicResource CaptionTextStyle}" />
+                        <TextBlock Text="{Binding SelectedPixelDimensions}" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,2,0,11" />
+                        <TextBlock Text="Original file" Style="{DynamicResource CaptionTextStyle}" />
+                        <TextBlock Text="{Binding SelectedOriginalFileName}" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,2,0,11" TextWrapping="Wrap" />
+                        <TextBlock Text="Internal file" Style="{DynamicResource CaptionTextStyle}" />
+                        <TextBlock Text="{Binding SelectedInternalFileName}" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,2,0,11" TextWrapping="Wrap" />
+                        <TextBlock Text="Relative path" Style="{DynamicResource CaptionTextStyle}" />
+                        <TextBlock Text="{Binding SelectedRelativePath}" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,2,0,11" TextWrapping="Wrap" />
+                        <TextBlock Text="SHA-256" Style="{DynamicResource CaptionTextStyle}" />
+                        <TextBlock Text="{Binding SelectedContentHash}" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,2,0,11"
+                                   FontFamily="Consolas" FontSize="11" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <StackPanel DataContext="{Binding VisualEditor}">
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasSelectedRegion}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+                        <TextBlock Text="Text Region" Style="{DynamicResource SectionTitleTextStyle}" Margin="0,0,0,16" />
+                        <TextBlock Text="Reading order" Style="{DynamicResource CaptionTextStyle}" />
+                        <TextBlock Text="{Binding SelectedRegion.ReadingOrder}" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,2,0,11" />
+                        <TextBlock Text="Geometry" Style="{DynamicResource CaptionTextStyle}" />
+                        <TextBlock Text="{Binding SelectedRegion.Geometry.Kind}" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,2,0,11" />
+                        <TextBlock Text="Point count" Style="{DynamicResource CaptionTextStyle}" />
+                        <TextBlock Text="{Binding SelectedRegion.Geometry.Points.Count}" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,2,0,11" />
+                        <TextBlock Text="Bounds (x, y, width x height)" Style="{DynamicResource CaptionTextStyle}" />
+                        <TextBlock Text="{Binding SelectedRegionBoundsDisplay}" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,2,0,11" TextWrapping="Wrap" />
+                        <TextBlock Text="Role" Style="{DynamicResource CaptionTextStyle}" />
+                        <ComboBox x:Name="RegionRoleSelector"
+                                  ItemsSource="{Binding Roles}"
+                                  SelectedItem="{Binding SelectedRegion.Role, Mode=OneWay}"
+                                  SelectionChanged="OnRegionClassificationChanged"
+                                  Margin="0,3,0,11" />
+                        <TextBlock Text="Container type" Style="{DynamicResource CaptionTextStyle}" />
+                        <ComboBox x:Name="RegionContainerSelector"
+                                  ItemsSource="{Binding ContainerTypes}"
+                                  SelectedItem="{Binding SelectedRegion.ContainerType, Mode=OneWay}"
+                                  SelectionChanged="OnRegionClassificationChanged"
+                                  Margin="0,3,0,11" />
+                        <ui:Button Content="Delete Region"
+                                   Appearance="Secondary"
+                                   Command="{Binding DeleteSelectedRegionCommand}"
+                                   HorizontalAlignment="Left"
+                                   Margin="0,5,0,0" />
+                    </StackPanel>
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasSelectedPage}" Value="False">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding VisualEditor.HasSelectedRegion}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+                        <TextBlock Text="Nothing selected" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextPrimaryBrush}" HorizontalAlignment="Center" />
+                        <TextBlock Text="Select a page to inspect its metadata."
+                                   Style="{DynamicResource CaptionTextStyle}" Margin="0,6,0,0"
+                                   TextAlignment="Center" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Grid>
+            </Grid>
+        </Grid>
+
+        <GridSplitter Grid.Row="1" Height="3" HorizontalAlignment="Stretch" ResizeDirection="Rows"
+                      Visibility="{Binding IsOutputVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
+
+        <Grid Grid.Row="2" Height="150" Background="{DynamicResource EditorBackgroundBrush}"
+              Visibility="{Binding IsOutputVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="34" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <Border Background="{DynamicResource PanelBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,1">
+                <Grid Margin="12,0,6,0">
+                    <TextBlock Text="OUTPUT" Style="{DynamicResource CaptionTextStyle}"
+                               FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <ui:Button HorizontalAlignment="Right" Style="{DynamicResource ToolbarButtonStyle}"
+                               Icon="{ui:SymbolIcon PanelBottomContract20}"
+                               Command="{Binding ToggleOutputCommand}" ToolTip="Close Output" />
+                </Grid>
+            </Border>
+            <ListBox Grid.Row="1" ItemsSource="{Binding OutputMessages}"
+                     Background="Transparent" BorderThickness="0" Padding="6"
+                     Foreground="{DynamicResource TextPrimaryBrush}"
+                     FontFamily="Consolas" FontSize="11"
+                     VirtualizingPanel.IsVirtualizing="True"
+                     VirtualizingPanel.VirtualizationMode="Recycling"
+                     AutomationProperties.Name="Workspace output" />
+        </Grid>
+    </Grid>
+</UserControl>

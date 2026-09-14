@@ -1,0 +1,115 @@
+<ui:FluentWindow x:Class="Inklume.Desktop.Views.SettingsDialog"
+                  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                  xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+                  Title="Settings"
+                  Width="690" Height="520"
+                  MinWidth="620" MinHeight="470"
+                  ResizeMode="CanResizeWithGrip"
+                  ShowInTaskbar="False"
+                  WindowStartupLocation="CenterOwner"
+                  WindowBackdropType="None"
+                  ExtendsContentIntoTitleBar="True"
+                  Background="{DynamicResource ApplicationBackgroundBrush}">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="46" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar Title="Settings" ShowMinimize="False" ShowMaximize="False"
+                     Background="{DynamicResource TopBarBackgroundBrush}"
+                     ButtonsBackground="Transparent"
+                     ButtonsForeground="{DynamicResource TextPrimaryBrush}" />
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="26,22">
+                <TextBlock Text="Appearance" Style="{DynamicResource PageTitleTextStyle}" />
+                <TextBlock Text="Choose how INKLUME looks. Changes apply immediately."
+                           Style="{DynamicResource SecondaryTextStyle}" Margin="0,6,0,20" />
+
+                <ItemsControl ItemsSource="{Binding Themes}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <ui:Button Width="292" Height="154" Margin="0,0,12,12" Padding="0"
+                                       Appearance="Transparent"
+                                       HorizontalContentAlignment="Stretch"
+                                       VerticalContentAlignment="Stretch"
+                                       Command="{Binding DataContext.SelectThemeCommand,
+                                           RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                       CommandParameter="{Binding}">
+                                <Border Padding="14" CornerRadius="6" Background="{DynamicResource CardBackgroundBrush}">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+                                            <Setter Property="BorderThickness" Value="1" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                                    <Setter Property="BorderThickness" Value="2" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="55" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="*" />
+                                        </Grid.RowDefinitions>
+                                        <Border Background="{Binding PreviewBackground}" CornerRadius="4"
+                                                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+                                            <Grid Margin="8">
+                                                <Border Width="92" HorizontalAlignment="Left"
+                                                        Background="{Binding PreviewPanel}" CornerRadius="3" />
+                                                <Border Width="34" Height="8" HorizontalAlignment="Right"
+                                                        VerticalAlignment="Top" Background="{Binding PreviewAccent}"
+                                                        CornerRadius="2" />
+                                            </Grid>
+                                        </Border>
+                                        <Grid Grid.Row="1" Margin="0,10,0,0">
+                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource TextPrimaryBrush}" />
+                                            <TextBlock Text="Current" HorizontalAlignment="Right"
+                                                       Foreground="{DynamicResource AccentBrush}">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource CaptionTextStyle}">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                                <Setter Property="Visibility" Value="Visible" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </Grid>
+                                        <TextBlock Grid.Row="2" Text="{Binding Description}"
+                                                   Style="{DynamicResource CaptionTextStyle}"
+                                                   TextWrapping="Wrap" Margin="0,5,0,0" />
+                                    </Grid>
+                                </Border>
+                            </ui:Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Border Grid.Row="2" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0"
+                Background="{DynamicResource PanelBackgroundBrush}" Padding="20,12">
+            <Grid>
+                <TextBlock Text="{Binding ErrorMessage}" Foreground="{DynamicResource ErrorBrush}"
+                           VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,100,0" />
+                <ui:Button Content="Close" Command="{Binding CloseCommand}"
+                           HorizontalAlignment="Right" MinWidth="86" />
+            </Grid>
+        </Border>
+    </Grid>
+</ui:FluentWindow>

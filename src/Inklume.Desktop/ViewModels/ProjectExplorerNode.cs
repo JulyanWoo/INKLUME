@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
+using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Inklume.Application.Chapters;
+using Inklume.Application.Projects;
 using Inklume.Domain.Projects;
 
 namespace Inklume.Desktop.ViewModels;

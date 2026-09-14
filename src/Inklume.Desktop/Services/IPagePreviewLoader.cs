@@ -1,8 +1,10 @@
-using System.Windows.Media;
-
 namespace Inklume.Desktop.Services;
 
 public interface IPagePreviewLoader
 {
-    Task<ImageSource> LoadAsync(string filePath, CancellationToken cancellationToken);
+    Task<PagePreview> LoadAsync(
+        string filePath,
+        int rawPixelWidth,
+        int rawPixelHeight,
+        CancellationToken cancellationToken);
 }
