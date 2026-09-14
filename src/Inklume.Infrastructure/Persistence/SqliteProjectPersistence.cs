@@ -7,10 +7,50 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Inklume.Infrastructure.Persistence;
 
+internal enum DatabaseProbeResult
+{
+    DoesNotExist,
+    ValidInklumeProject,
+    InvalidOrConflicting
+}
+
 internal static class SqliteProjectPersistence
 {
     // SQLite's application_id distinguishes this format from unrelated SQLite databases.
     internal const int ApplicationId = 0x494E4B4C;
+
+    internal static async Task<DatabaseProbeResult> ProbeDatabaseAsync(string databasePath, CancellationToken cancellationToken)
+    {
+        if (!File.Exists(databasePath))
+        {
+            return DatabaseProbeResult.DoesNotExist;
+        }
+
+        try
+        {
+            await using ProjectDbContext probe = CreateContext(databasePath, readOnly: true);
+            await OpenConnectionAsync(probe, cancellationToken);
+            await VerifyIdentityAsync(probe, cancellationToken);
+
+            string[] appliedMigrations = [.. (await probe.Database.GetAppliedMigrationsAsync(cancellationToken))];
+            if (appliedMigrations.Length == 0)
+            {
+                return DatabaseProbeResult.InvalidOrConflicting;
+            }
+
+            int count = await probe.Projects.AsNoTracking().CountAsync(cancellationToken);
+            if (count != 1)
+            {
+                return DatabaseProbeResult.InvalidOrConflicting;
+            }
+
+            return DatabaseProbeResult.ValidInklumeProject;
+        }
+        catch
+        {
+            return DatabaseProbeResult.InvalidOrConflicting;
+        }
+    }
 
     internal static async Task InitializeAsync(string databasePath, CancellationToken cancellationToken)
     {

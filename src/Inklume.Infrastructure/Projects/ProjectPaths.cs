@@ -53,6 +53,21 @@ internal static class ProjectPaths
         }
     }
 
+    internal static bool IsDescendantOf(string rootPath, string candidatePath)
+    {
+        string normalizedRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rootPath));
+        string normalizedCandidate = Path.TrimEndingDirectorySeparator(Path.GetFullPath(candidatePath));
+
+        return normalizedCandidate.StartsWith(normalizedRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+            || normalizedCandidate.StartsWith(normalizedRoot + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(normalizedRoot, normalizedCandidate, StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal static bool IsReparsePoint(string path)
+    {
+        return Path.Exists(path) && (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
+    }
+
     internal static void RequireDirectory(string path)
     {
         RejectReparsePoints(path);

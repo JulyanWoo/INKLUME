@@ -15,45 +15,119 @@ public sealed class FileSystemProjectStore : IProjectStore
     {
         ArgumentNullException.ThrowIfNull(project);
         cancellationToken.ThrowIfCancellationRequested();
+
+        string normalizedPath = ProjectPaths.Normalize(rootPath);
+        if (File.Exists(normalizedPath))
+        {
+            throw new ProjectOperationException(ProjectErrorCode.InvalidPath, "The selected path is a file, not a folder.");
+        }
+
+        string? parentPath = Path.GetDirectoryName(normalizedPath);
+        if (parentPath is null || !Directory.Exists(parentPath))
+        {
+            throw new ProjectOperationException(ProjectErrorCode.InvalidPath,
+                "The parent folder must exist before creating a project.");
+        }
+
+        if (File.Exists(Path.Combine(normalizedPath, ProjectPaths.CreationLockFileName)))
+        {
+            throw new ProjectOperationException(ProjectErrorCode.AlreadyExists,
+                "Another operation is already creating a project in this folder.");
+        }
+
+        string databasePath = Path.Combine(normalizedPath, ProjectPaths.DatabaseFileName);
+        DatabaseProbeResult probeResult = await SqliteProjectPersistence.ProbeDatabaseAsync(databasePath, cancellationToken);
+        if (probeResult == DatabaseProbeResult.ValidInklumeProject)
+        {
+            throw new ProjectOperationException(ProjectErrorCode.AlreadyExists,
+                "This folder already contains an INKLUME project. Open the existing project instead.");
+        }
+
+        if (probeResult == DatabaseProbeResult.InvalidOrConflicting)
+        {
+            throw new ProjectOperationException(ProjectErrorCode.InvalidProject,
+                "A 'project.db' file already exists in this folder but is not a valid INKLUME project. INKLUME will not overwrite it.");
+        }
+
+        string contextPath = Path.Combine(normalizedPath, "context");
+        if (Directory.Exists(contextPath))
+        {
+            string[] reservedContextFiles = ["series.json", "characters.json", "glossary.json", "translation_rules.json"];
+            foreach (string fileName in reservedContextFiles)
+            {
+                if (File.Exists(Path.Combine(contextPath, fileName)))
+                {
+                    throw new ProjectOperationException(ProjectErrorCode.InvalidProject,
+                        $"A reserved context file already exists ({fileName}) and conflicts with project initialization.");
+                }
+            }
+        }
+
+        var createdDirectories = new List<string>();
+        var createdFiles = new List<string>();
+
+        if (!Directory.Exists(normalizedPath))
+        {
+            Directory.CreateDirectory(normalizedPath);
+            createdDirectories.Add(normalizedPath);
+        }
+
         try
         {
-            string normalizedPath = ProjectPaths.Normalize(rootPath);
-            await RejectOccupiedDirectoryAsync(normalizedPath, cancellationToken);
-            string? parentPath = Path.GetDirectoryName(normalizedPath);
-            if (parentPath is null || !Directory.Exists(parentPath))
+            using FileStream creationLock = AcquireCreationLock(normalizedPath);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            string chaptersPath = Path.Combine(normalizedPath, "chapters");
+            if (!Directory.Exists(chaptersPath))
             {
-                throw new ProjectOperationException(ProjectErrorCode.InvalidPath,
-                    "The parent folder must exist before creating a project.");
+                Directory.CreateDirectory(chaptersPath);
+                createdDirectories.Add(chaptersPath);
             }
 
-            Directory.CreateDirectory(normalizedPath);
-            using FileStream creationLock = AcquireCreationLock(normalizedPath);
-            if (Directory.EnumerateFileSystemEntries(normalizedPath)
-                .Any(path => !string.Equals(Path.GetFileName(path), ProjectPaths.CreationLockFileName, StringComparison.Ordinal)))
+            string cachePath = Path.Combine(normalizedPath, "cache");
+            if (!Directory.Exists(cachePath))
             {
-                throw new ProjectOperationException(ProjectErrorCode.DirectoryNotEmpty,
-                    "The selected folder is no longer empty. Its contents were not replaced.");
+                Directory.CreateDirectory(cachePath);
+                createdDirectories.Add(cachePath);
+            }
+
+            if (!Directory.Exists(contextPath))
+            {
+                Directory.CreateDirectory(contextPath);
+                createdDirectories.Add(contextPath);
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            Directory.CreateDirectory(Path.Combine(normalizedPath, "chapters"));
-            Directory.CreateDirectory(Path.Combine(normalizedPath, "cache"));
-            string databasePath = Path.Combine(normalizedPath, ProjectPaths.DatabaseFileName);
             await SqliteProjectPersistence.InitializeAsync(databasePath, cancellationToken);
+            createdFiles.Add(databasePath);
+
             await ProjectContextFiles.CreateAsync(normalizedPath, project, cancellationToken);
+            createdFiles.Add(Path.Combine(contextPath, "series.json"));
+            createdFiles.Add(Path.Combine(contextPath, "characters.json"));
+            createdFiles.Add(Path.Combine(contextPath, "glossary.json"));
+            createdFiles.Add(Path.Combine(contextPath, "translation_rules.json"));
+
             // Metadata is committed last, so interrupted creation cannot masquerade as a complete project.
             await SqliteProjectPersistence.SaveAsync(databasePath, project, cancellationToken);
             return new ProjectWorkspace(project, normalizedPath);
         }
-        catch (UnauthorizedAccessException exception)
+        catch (Exception exception)
         {
-            throw new ProjectOperationException(ProjectErrorCode.AccessDenied,
-                "INKLUME cannot write to the selected project folder.", exception);
-        }
-        catch (Exception exception) when (exception is IOException or SqliteException or DbUpdateException)
-        {
+            RollbackCreatedResources(createdFiles, createdDirectories);
+
+            if (exception is ProjectOperationException or OperationCanceledException)
+            {
+                throw;
+            }
+
+            if (exception is UnauthorizedAccessException)
+            {
+                throw new ProjectOperationException(ProjectErrorCode.AccessDenied,
+                    "INKLUME cannot write to the selected project folder.", exception);
+            }
+
             throw new ProjectOperationException(ProjectErrorCode.StorageFailure,
-                "The project could not be created. Any partial files were preserved; select an empty folder to retry.", exception);
+                "The project could not be created. Pre-existing files were preserved.", exception);
         }
     }
 
@@ -75,11 +149,11 @@ public sealed class FileSystemProjectStore : IProjectStore
                     && Directory.EnumerateFiles(normalizedPath).Any(f => ImageFileValidator.SupportedExtensions.Contains(Path.GetExtension(f))))
                 {
                     throw new ProjectOperationException(ProjectErrorCode.InvalidProject,
-                        "This folder contains comic images, but is not an INKLUME project. Create a project first, then use 'Import Chapter' to import these images.");
+                        "This folder contains comic images, but is not an INKLUME project.");
                 }
 
                 throw new ProjectOperationException(ProjectErrorCode.InvalidProject,
-                    "The selected folder is not an INKLUME project workspace. Choose a folder created with 'New Project'.");
+                    "The selected folder is not an INKLUME project workspace.");
             }
 
             foreach (string directoryName in new[] { "context", "chapters", "cache" })
@@ -125,36 +199,52 @@ public sealed class FileSystemProjectStore : IProjectStore
         }
     }
 
-    private async Task RejectOccupiedDirectoryAsync(string path, CancellationToken cancellationToken)
+    private static void RollbackCreatedResources(List<string> createdFiles, List<string> createdDirectories)
     {
-        if (File.Exists(path))
+        SqliteConnection.ClearAllPools();
+
+        foreach (string filePath in createdFiles)
         {
-            throw new ProjectOperationException(ProjectErrorCode.InvalidPath, "The selected path is a file, not a folder.");
+            try
+            {
+                if (File.Exists(filePath))
+                {
+                    File.Delete(filePath);
+                }
+
+                string walPath = $"{filePath}-wal";
+                if (File.Exists(walPath))
+                {
+                    File.Delete(walPath);
+                }
+
+                string shmPath = $"{filePath}-shm";
+                if (File.Exists(shmPath))
+                {
+                    File.Delete(shmPath);
+                }
+            }
+            catch (Exception exception)
+            {
+                System.Diagnostics.Trace.TraceWarning("Failed to delete created file during rollback: {0}", exception);
+            }
         }
 
-        if (!Directory.Exists(path) || !Directory.EnumerateFileSystemEntries(path).Any())
+        for (int i = createdDirectories.Count - 1; i >= 0; i--)
         {
-            return;
+            string dirPath = createdDirectories[i];
+            try
+            {
+                if (Directory.Exists(dirPath) && !Directory.EnumerateFileSystemEntries(dirPath).Any())
+                {
+                    Directory.Delete(dirPath);
+                }
+            }
+            catch (Exception exception)
+            {
+                System.Diagnostics.Trace.TraceWarning("Failed to delete created directory during rollback: {0}", exception);
+            }
         }
-
-        if (File.Exists(Path.Combine(path, ProjectPaths.CreationLockFileName)))
-        {
-            throw new ProjectOperationException(ProjectErrorCode.AlreadyExists,
-                "Another operation is already creating a project in this folder.");
-        }
-
-        try
-        {
-            await OpenAsync(path, cancellationToken);
-        }
-        catch (ProjectOperationException exception)
-        {
-            throw new ProjectOperationException(ProjectErrorCode.DirectoryNotEmpty,
-                "Choose an empty folder. Existing files were not replaced.", exception);
-        }
-
-        throw new ProjectOperationException(ProjectErrorCode.AlreadyExists,
-            "This folder already contains an INKLUME project. Use Open project instead.");
     }
 
     private static FileStream AcquireCreationLock(string rootPath)
