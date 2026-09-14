@@ -15,7 +15,11 @@ public sealed class ChapterImportTests : IDisposable
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
     private static readonly byte[] WebpBytes = Convert.FromBase64String(
         "UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEAAUAmJaQAA3AA/vuU");
-    private static readonly byte[] MinimalJpegBytes = [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x02, 0xFF, 0xD9];
+    private static readonly byte[] MinimalJpegBytes =
+    [
+        0xFF, 0xD8, 0xFF, 0xC0, 0x00, 0x11, 0x08, 0x00, 0x01, 0x00, 0x01, 0x03,
+        0x01, 0x11, 0x00, 0x02, 0x11, 0x00, 0x03, 0x11, 0x00, 0xFF, 0xD9
+    ];
     private readonly TemporaryWorkspace _temporaryWorkspace = new();
 
     [Fact]
@@ -42,6 +46,11 @@ public sealed class ChapterImportTests : IDisposable
         Assert.Equal(["notas_日本語.txt"], result.IgnoredFiles);
         Assert.Equal(sourcesBefore, CaptureFiles(sourcePath));
         Assert.All(result.Pages, page => Assert.True(File.Exists(page.FilePath)));
+        Assert.All(result.Pages, page =>
+        {
+            Assert.Equal(1, page.Page.PixelWidth);
+            Assert.Equal(1, page.Page.PixelHeight);
+        });
         Assert.All(result.Pages, page => Assert.Equal(
             Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(page.FilePath))), page.Page.ContentHash));
         Assert.Equal(Path.Combine(workspace.RootPath, "chapters", "001", "001_raw"),
@@ -204,7 +213,9 @@ public sealed class ChapterImportTests : IDisposable
         ProjectWorkspace workspace = await CreateWorkspaceAsync("Legacy schema project");
         string databasePath = Path.Combine(workspace.RootPath, "project.db");
         await ExecuteSqlAsync(databasePath,
-            "DROP TABLE Pages; DROP TABLE Chapters; DELETE FROM __EFMigrationsHistory WHERE MigrationId LIKE '%AddChaptersAndPages';");
+            "DROP TABLE TextRegionPoints; DROP TABLE TextRegions; DROP TABLE Pages; DROP TABLE Chapters; " +
+            "DELETE FROM __EFMigrationsHistory WHERE MigrationId LIKE '%AddVisualEditorFoundation' " +
+            "OR MigrationId LIKE '%AddChaptersAndPages';");
 
         ProjectWorkspace reopened = await new FileSystemProjectStore().OpenAsync(
             workspace.RootPath, TestContext.Current.CancellationToken);

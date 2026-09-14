@@ -193,6 +193,24 @@ public sealed class FileSystemProjectStoreTests : IDisposable
         Assert.False(Directory.Exists(rootPath));
     }
 
+    [Fact]
+    public async Task OpenAsync_ShouldExplainImagesFoundWhenOpeningRawFolder()
+    {
+        string rawFolder = _temporaryWorkspace.GetPath("Raw images folder");
+        Directory.CreateDirectory(rawFolder);
+        await File.WriteAllBytesAsync(
+            Path.Combine(rawFolder, "page_01.png"),
+            [137, 80, 78, 71, 13, 10, 26, 10],
+            TestContext.Current.CancellationToken);
+
+        ProjectOperationException exception = await Assert.ThrowsAsync<ProjectOperationException>(
+            () => new FileSystemProjectStore().OpenAsync(rawFolder, TestContext.Current.CancellationToken));
+
+        Assert.Equal(ProjectErrorCode.InvalidProject, exception.Code);
+        Assert.Contains("contains comic images", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Import Chapter", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Theory]
     [InlineData("chapters")]
     [InlineData("cache")]

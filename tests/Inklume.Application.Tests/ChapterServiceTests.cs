@@ -80,5 +80,9 @@ public sealed class ChapterServiceTests
         public Task<IReadOnlyList<PageWorkspace>> GetPagesAsync(
             ProjectWorkspace workspace, Guid chapterId, CancellationToken cancellationToken)
             => Task.FromResult<IReadOnlyList<PageWorkspace>>([]);
+
+        public Task<PageWorkspace> EnsurePageDimensionsAsync(
+            ProjectWorkspace workspace, Guid pageId, CancellationToken cancellationToken)
+            => throw new NotSupportedException();
     }
 }

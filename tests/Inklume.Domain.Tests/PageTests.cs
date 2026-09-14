@@ -17,6 +17,21 @@ public sealed class PageTests
         Assert.Equal(Hash.ToUpperInvariant(), page.ContentHash);
     }
 
+    [Fact]
+    public void Dimensions_ShouldBecomeImmutableOnceResolved()
+    {
+        var page = new Page(Guid.NewGuid(), Guid.NewGuid(), 1, "page.png", "page.png", Hash);
+
+        Page resolved = page.WithDimensions(1080, 15000);
+
+        Assert.False(page.HasDimensions);
+        Assert.True(resolved.HasDimensions);
+        Assert.Equal(1080, resolved.PixelWidth);
+        Assert.Equal(15000, resolved.PixelHeight);
+        Assert.Same(resolved, resolved.WithDimensions(1080, 15000));
+        Assert.Throws<InvalidOperationException>(() => resolved.WithDimensions(720, 10000));
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(-1)]
