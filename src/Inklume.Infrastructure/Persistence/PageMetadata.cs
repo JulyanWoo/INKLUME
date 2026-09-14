@@ -13,4 +13,8 @@ internal sealed class PageMetadata
     public string RelativePath { get; set; } = string.Empty;
 
     public string ContentHash { get; set; } = string.Empty;
+
+    public int? PixelWidth { get; set; }
+
+    public int? PixelHeight { get; set; }
 }

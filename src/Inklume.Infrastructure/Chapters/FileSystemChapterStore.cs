@@ -143,6 +143,47 @@ public sealed class FileSystemChapterStore : IChapterStore
         }).ToArray();
     }
 
+    public async Task<PageWorkspace> EnsurePageDimensionsAsync(
+        ProjectWorkspace workspace,
+        Guid pageId,
+        CancellationToken cancellationToken)
+    {
+        ProjectWorkspace verifiedWorkspace = await VerifyWorkspaceAsync(workspace, cancellationToken);
+        string databasePath = Path.Combine(verifiedWorkspace.RootPath, ProjectPaths.DatabaseFileName);
+        await using ProjectDbContext context = SqliteProjectPersistence.CreateContext(databasePath, readOnly: false);
+        await SqliteProjectPersistence.OpenConnectionAsync(context, cancellationToken);
+        PageMetadata? metadata = await context.Pages
+            .Join(
+                context.Chapters.Where(chapter => chapter.ProjectId == verifiedWorkspace.Project.Id),
+                page => page.ChapterId,
+                chapter => chapter.Id,
+                (page, chapter) => page)
+            .SingleOrDefaultAsync(page => page.Id == pageId, cancellationToken);
+        if (metadata is null)
+        {
+            throw new ProjectOperationException(ProjectErrorCode.InvalidProject,
+                "The selected page does not belong to the open project.");
+        }
+
+        Page page = ToDomainPage(metadata);
+        string filePath = ResolvePagePath(verifiedWorkspace.RootPath, page.RelativePath);
+        if (!page.HasDimensions)
+        {
+            string extension = Path.GetExtension(filePath);
+            await using var stream = new FileStream(
+                filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096,
+                FileOptions.Asynchronous | FileOptions.RandomAccess);
+            ImageDimensions dimensions = await ImageFileValidator.ValidateAsync(
+                stream, page.OriginalFileName, extension, cancellationToken);
+            page = page.WithDimensions(dimensions.PixelWidth, dimensions.PixelHeight);
+            metadata.PixelWidth = dimensions.PixelWidth;
+            metadata.PixelHeight = dimensions.PixelHeight;
+            await context.SaveChangesAsync(cancellationToken);
+        }
+
+        return new PageWorkspace(page, filePath);
+    }
+
     private static async Task<ProjectWorkspace> VerifyWorkspaceAsync(
         ProjectWorkspace workspace, CancellationToken cancellationToken)
     {
@@ -198,13 +239,14 @@ public sealed class FileSystemChapterStore : IChapterStore
                     destinationPath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096,
                     FileOptions.Asynchronous | FileOptions.SequentialScan))
                 {
-                    await ImageFileValidator.ValidateAsync(
+                    ImageDimensions dimensions = await ImageFileValidator.ValidateAsync(
                         validationStream, sourceImage.OriginalFileName, extension, cancellationToken);
-                }
 
-                string relativePath = Path.Combine("chapters", chapterFolderName, rawFolderName, destinationFileName);
-                pages.Add(new Page(Guid.NewGuid(), chapterId, pageNumber,
-                    sourceImage.OriginalFileName, relativePath, hash));
+                    string relativePath = Path.Combine("chapters", chapterFolderName, rawFolderName, destinationFileName);
+                    pages.Add(new Page(Guid.NewGuid(), chapterId, pageNumber,
+                        sourceImage.OriginalFileName, relativePath, hash,
+                        dimensions.PixelWidth, dimensions.PixelHeight));
+                }
                 progress?.Report(new ChapterImportProgress(pageNumber, sourceImages.Count, sourceImage.OriginalFileName));
             }
         }
@@ -278,7 +320,9 @@ public sealed class FileSystemChapterStore : IChapterStore
             Number = page.Number,
             OriginalFileName = page.OriginalFileName,
             RelativePath = page.RelativePath,
-            ContentHash = page.ContentHash
+            ContentHash = page.ContentHash,
+            PixelWidth = page.PixelWidth,
+            PixelHeight = page.PixelHeight
         }));
 
         DateTimeOffset updatedAt = chapter.UpdatedAt > projectMetadata.UpdatedAt
@@ -298,7 +342,7 @@ public sealed class FileSystemChapterStore : IChapterStore
 
     private static Page ToDomainPage(PageMetadata metadata)
         => new(metadata.Id, metadata.ChapterId, metadata.Number, metadata.OriginalFileName,
-            metadata.RelativePath, metadata.ContentHash);
+            metadata.RelativePath, metadata.ContentHash, metadata.PixelWidth, metadata.PixelHeight);
 
     private static string ResolvePagePath(string projectRoot, string relativePath)
     {

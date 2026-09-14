@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Inklume.Application.Projects;
 using Inklume.Domain.Projects;
+using Inklume.Infrastructure.Chapters;
 using Inklume.Infrastructure.Persistence;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -67,12 +68,25 @@ public sealed class FileSystemProjectStore : IProjectStore
                 throw new ProjectOperationException(ProjectErrorCode.InvalidPath, "The selected path is not a project folder.");
             }
 
+            string databasePath = Path.Combine(normalizedPath, ProjectPaths.DatabaseFileName);
+            if (!File.Exists(databasePath) && !Directory.Exists(Path.Combine(normalizedPath, "context")))
+            {
+                if (Directory.Exists(normalizedPath)
+                    && Directory.EnumerateFiles(normalizedPath).Any(f => ImageFileValidator.SupportedExtensions.Contains(Path.GetExtension(f))))
+                {
+                    throw new ProjectOperationException(ProjectErrorCode.InvalidProject,
+                        "This folder contains comic images, but is not an INKLUME project. Create a project first, then use 'Import Chapter' to import these images.");
+                }
+
+                throw new ProjectOperationException(ProjectErrorCode.InvalidProject,
+                    "The selected folder is not an INKLUME project workspace. Choose a folder created with 'New Project'.");
+            }
+
             foreach (string directoryName in new[] { "context", "chapters", "cache" })
             {
                 ProjectPaths.RequireDirectory(Path.Combine(normalizedPath, directoryName));
             }
 
-            string databasePath = Path.Combine(normalizedPath, ProjectPaths.DatabaseFileName);
             ProjectPaths.RequireFile(databasePath);
             TranslationProject project = await SqliteProjectPersistence.ReadAsync(databasePath, cancellationToken);
             await ProjectContextFiles.ValidateAsync(normalizedPath, project, cancellationToken);
