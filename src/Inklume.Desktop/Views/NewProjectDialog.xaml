@@ -26,8 +26,10 @@
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="26,22,26,16">
             <StackPanel>
                 <TextBlock Text="Create a localization project" Style="{DynamicResource PageTitleTextStyle}" FontSize="20" />
-                <TextBlock Text="Choose a name and a folder for the new INKLUME workspace."
-                           Style="{DynamicResource SecondaryTextStyle}" Margin="0,6,0,20" />
+                <TextBlock Text="Choose a name and a source folder for the new INKLUME workspace."
+                           Style="{DynamicResource SecondaryTextStyle}" Margin="0,6,0,4" />
+                <TextBlock Text="INKLUME keeps workspace metadata outside your source folder."
+                           Style="{DynamicResource CaptionTextStyle}" Margin="0,0,0,20" />
 
                 <StackPanel Margin="0,0,0,14">
                     <TextBlock Text="Project name"
@@ -52,7 +54,7 @@
                 </StackPanel>
 
                 <StackPanel Margin="0,0,0,8">
-                    <TextBlock Text="Project folder"
+                    <TextBlock Text="Source folder"
                                FontWeight="Medium"
                                FontSize="12"
                                Foreground="{DynamicResource TextPrimaryBrush}"
@@ -63,8 +65,8 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <ui:TextBox Text="{Binding ProjectFolder, UpdateSourceTrigger=PropertyChanged}"
-                                    PlaceholderText="Path to project folder..."
-                                    AutomationProperties.Name="Project folder" />
+                                    PlaceholderText="Path to comic source folder..."
+                                    AutomationProperties.Name="Source folder" />
                         <ui:Button Grid.Column="1"
                                    Content="Browse..."
                                    Icon="{ui:SymbolIcon FolderOpen24}"

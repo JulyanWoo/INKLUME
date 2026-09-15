@@ -123,22 +123,27 @@ public sealed class SqliteTextRegionStore : ITextRegionStore
     }
 
     private static ProjectDbContext CreateContext(ProjectWorkspace workspace, bool readOnly)
-        => SqliteProjectPersistence.CreateContext(
-            Path.Combine(workspace.RootPath, ProjectPaths.DatabaseFileName), readOnly);
+        => SqliteProjectPersistence.CreateContext(workspace.DatabasePath, readOnly);
 
     private static async Task<ProjectWorkspace> VerifyWorkspaceAsync(
         ProjectWorkspace workspace,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(workspace);
-        ProjectWorkspace verified = await new FileSystemProjectStore().OpenAsync(workspace.RootPath, cancellationToken);
-        if (verified.Project.Id != workspace.Project.Id)
+        if (!File.Exists(workspace.DatabasePath))
+        {
+            throw new ProjectOperationException(
+                ProjectErrorCode.NotFound, "The workspace database could not be found.");
+        }
+
+        TranslationProject project = await SqliteProjectPersistence.ReadAsync(workspace.DatabasePath, cancellationToken);
+        if (project.Id != workspace.Project.Id)
         {
             throw new ProjectOperationException(
                 ProjectErrorCode.InvalidProject, "The selected workspace no longer matches the open project.");
         }
 
-        return verified;
+        return workspace with { Project = project };
     }
 
     private static async Task RequirePageAsync(

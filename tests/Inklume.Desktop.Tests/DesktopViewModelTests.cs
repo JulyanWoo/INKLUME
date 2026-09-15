@@ -39,7 +39,7 @@ public sealed class DesktopViewModelTests
     {
         ProjectWorkspace workspace = CreateWorkspace("Opened Project", @"C:\Opened Project");
         var projectStore = new ProjectStoreStub { WorkspaceToOpen = workspace };
-        var dialogs = new DialogServiceStub { ProjectFolderResult = workspace.RootPath };
+        var dialogs = new DialogServiceStub { ProjectFolderResult = workspace.SourceRoot };
         MainViewModel viewModel = CreateMainViewModel(projectStore, new ChapterStoreStub(), dialogs);
 
         viewModel.OpenProjectCommand.Execute(null);
@@ -59,7 +59,7 @@ public sealed class DesktopViewModelTests
         PageWorkspace page = CreatePage(chapter.Id, 1, "page 1.png", "001.png");
         var projectStore = new ProjectStoreStub { WorkspaceToOpen = workspace };
         var chapterStore = new ChapterStoreStub([chapter], [page]);
-        var dialogs = new DialogServiceStub { ProjectFolderResult = workspace.RootPath };
+        var dialogs = new DialogServiceStub { ProjectFolderResult = workspace.SourceRoot };
         MainViewModel viewModel = CreateMainViewModel(projectStore, chapterStore, dialogs);
         viewModel.OpenProjectCommand.Execute(null);
         await (viewModel.OpenProjectCommand.ExecutionTask ?? Task.CompletedTask);
@@ -316,7 +316,7 @@ public sealed class DesktopViewModelTests
             Assert.NotNull(viewModel.Result);
             Assert.True(closeRequested);
             Assert.Empty(viewModel.ErrorMessage);
-            Assert.Equal(tempDir, viewModel.Result.RootPath);
+            Assert.Equal(tempDir, viewModel.Result.SourceRoot);
         }
         finally
         {
@@ -438,12 +438,16 @@ public sealed class DesktopViewModelTests
     }
 
     private static ProjectWorkspace CreateWorkspace(string name, string rootPath)
-        => new(new TranslationProject(Guid.NewGuid(), name, $"{name} Series", Timestamp, Timestamp), rootPath);
+        => new(new TranslationProject(Guid.NewGuid(), name, $"{name} Series", Timestamp, Timestamp), rootPath, $"{rootPath}_data");
 
     private static Chapter CreateChapter(Guid projectId, decimal number = 1, string? title = null)
         => new(Guid.NewGuid(), projectId, new ChapterNumber(number), title, Timestamp, Timestamp);
 
-    private static PageWorkspace CreatePage(Guid chapterId, int number, string originalFileName, string internalFileName)
+    private static PageWorkspace CreatePage(
+        Guid chapterId,
+        int number,
+        string originalFileName,
+        string internalFileName)
     {
         string relativePath = Path.Combine("chapters", "001", "001_raw", internalFileName);
         var page = new Page(
@@ -459,7 +463,7 @@ public sealed class DesktopViewModelTests
             TranslationProject project,
             string rootPath,
             CancellationToken cancellationToken)
-            => Task.FromResult(new ProjectWorkspace(project, rootPath));
+            => Task.FromResult(new ProjectWorkspace(project, rootPath, $"{rootPath}_data"));
 
         public Task<ProjectWorkspace> OpenAsync(string rootPath, CancellationToken cancellationToken)
             => Task.FromResult(WorkspaceToOpen ?? throw new InvalidOperationException("No project was configured."));
@@ -501,6 +505,19 @@ internal sealed class ChapterStoreStub(
             ? page
             : page with { Page = page.Page.WithDimensions(1080, 1920) });
     }
+
+    public Task<ChapterIndexResult> IndexChapterInPlaceAsync(
+        ProjectWorkspace workspace,
+        string chapterDirectory,
+        ChapterNumber chapterNumber,
+        string? title = null,
+        CancellationToken cancellationToken = default)
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        var chapter = new Chapter(Guid.NewGuid(), workspace.Project.Id, chapterNumber, title, now, now);
+        var matchedPages = Pages.Where(p => p.Page.ChapterId == chapter.Id).ToList();
+        return Task.FromResult(new ChapterIndexResult(workspace, chapter, matchedPages));
+    }
 }
 
 internal sealed class DialogServiceStub : IProjectDialogService
@@ -513,7 +530,13 @@ internal sealed class DialogServiceStub : IProjectDialogService
 
     public CreateProjectRequest? ShowNewProjectDialog() => NewProjectResult;
 
-    public ImportChapterDialogResult? ShowImportChapterDialog() => ImportChapterResult;
+    public string? LastInitialSourceFolder { get; private set; }
+
+    public ImportChapterDialogResult? ShowImportChapterDialog(string? initialSourceFolder = null)
+    {
+        LastInitialSourceFolder = initialSourceFolder;
+        return ImportChapterResult;
+    }
 
     public string? PickProjectFolder() => ProjectFolderResult;
 }
@@ -561,7 +584,13 @@ internal sealed class PreviewLoaderStub : IPagePreviewLoader
         string filePath, int rawPixelWidth, int rawPixelHeight, CancellationToken cancellationToken)
     {
         LastFilePath = filePath;
-        return Task.FromResult(new PagePreview(new DrawingImage(), 540, 960));
+        return Task.FromResult(new PagePreview(new DrawingImage(), 540, 960, rawPixelWidth, rawPixelHeight));
+    }
+
+    public Task<PagePreview> LoadImageAsync(string filePath, CancellationToken cancellationToken)
+    {
+        LastFilePath = filePath;
+        return Task.FromResult(new PagePreview(new DrawingImage(), 540, 960, 1080, 1920));
     }
 }
 

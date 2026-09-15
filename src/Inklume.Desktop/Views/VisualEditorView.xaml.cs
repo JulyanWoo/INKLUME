@@ -72,7 +72,8 @@ public partial class VisualEditorView : UserControl
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(VisualEditorViewModel.SelectedPage)
-            or nameof(VisualEditorViewModel.Preview))
+            or nameof(VisualEditorViewModel.Preview)
+            or nameof(VisualEditorViewModel.IsGenericPreview))
         {
             CancelTransientVisuals();
             ConfigureViewport(fitIfUninitialized: true);
@@ -155,7 +156,7 @@ public partial class VisualEditorView : UserControl
 
     private void OnViewportMouseDown(object sender, MouseButtonEventArgs e)
     {
-        if (_viewModel is not { HasPage: true })
+        if (_viewModel is null || (!_viewModel.HasPage && !_viewModel.IsGenericPreview))
         {
             return;
         }
@@ -173,7 +174,7 @@ public partial class VisualEditorView : UserControl
             return;
         }
 
-        if (e.ChangedButton != MouseButton.Left)
+        if (e.ChangedButton != MouseButton.Left || !_viewModel.IsEditingEnabled)
         {
             return;
         }
@@ -274,7 +275,7 @@ public partial class VisualEditorView : UserControl
 
     private void OnViewportMouseWheel(object sender, MouseWheelEventArgs e)
     {
-        if (_viewModel is not { HasPage: true })
+        if (_viewModel is null || (!_viewModel.HasPage && !_viewModel.IsGenericPreview))
         {
             return;
         }

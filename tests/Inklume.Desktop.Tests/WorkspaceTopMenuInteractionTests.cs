@@ -17,6 +17,7 @@ using Xunit;
 
 namespace Inklume.Desktop.Tests;
 
+[Collection("WpfRenderCollection")]
 public sealed class WorkspaceTopMenuInteractionTests
 {
     private const int WM_NCHITTEST = 0x0084;
@@ -29,9 +30,8 @@ public sealed class WorkspaceTopMenuInteractionTests
     [Fact]
     public void TopMenu_InRenderedWindow_ShouldNotBeBlockedByTitleBarCaption_AndShouldSupportAllMenuItems()
     {
-        RunInStaThread(() =>
+        WpfTestRunner.Run(() =>
         {
-            EnsureWpfApplication();
 
             using var tempDir = new TemporaryDirectory();
             string projectRoot = Path.Combine(tempDir.Path, "TopMenuTestProject");
@@ -199,32 +199,6 @@ public sealed class WorkspaceTopMenuInteractionTests
         });
     }
 
-    private static void EnsureWpfApplication()
-    {
-        if (System.Windows.Application.Current != null)
-        {
-            return;
-        }
-
-        var app = new System.Windows.Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
-        var uiThemeDict = new Wpf.Ui.Markup.ThemesDictionary { Theme = Wpf.Ui.Appearance.ApplicationTheme.Dark };
-        var uiControlDict = new Wpf.Ui.Markup.ControlsDictionary();
-        app.Resources.MergedDictionaries.Add(uiThemeDict);
-        app.Resources.MergedDictionaries.Add(uiControlDict);
-        app.Resources.MergedDictionaries.Add(new ResourceDictionary
-        {
-            Source = new Uri("pack://application:,,,/Inklume.Desktop;component/Themes/Graphite/Colors.xaml")
-        });
-        app.Resources.MergedDictionaries.Add(new ResourceDictionary
-        {
-            Source = new Uri("pack://application:,,,/Inklume.Desktop;component/Themes/Brushes.xaml")
-        });
-        app.Resources.MergedDictionaries.Add(new ResourceDictionary
-        {
-            Source = new Uri("pack://application:,,,/Inklume.Desktop;component/Themes/Controls.xaml")
-        });
-    }
-
     private static void PumpDispatcher()
     {
         var frame = new DispatcherFrame();
@@ -237,30 +211,6 @@ public sealed class WorkspaceTopMenuInteractionTests
             }),
             frame);
         Dispatcher.PushFrame(frame);
-    }
-
-    private static void RunInStaThread(Action action)
-    {
-        Exception? thrown = null;
-        var thread = new Thread(() =>
-        {
-            try
-            {
-                action();
-            }
-            catch (Exception ex)
-            {
-                thrown = ex;
-            }
-        });
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        thread.Join();
-
-        if (thrown != null)
-        {
-            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(thrown).Throw();
-        }
     }
 
     private static IEnumerable<T> FindVisualChildren<T>(DependencyObject root) where T : DependencyObject
@@ -283,16 +233,16 @@ public sealed class WorkspaceTopMenuInteractionTests
     private static ProjectWorkspace CreateWorkspace(string name, string rootPath)
     {
         var timestamp = new DateTimeOffset(2026, 9, 13, 12, 0, 0, TimeSpan.Zero);
-        return new ProjectWorkspace(new TranslationProject(Guid.NewGuid(), name, $"{name} Series", timestamp, timestamp), rootPath);
+        return new ProjectWorkspace(new TranslationProject(Guid.NewGuid(), name, $"{name} Series", timestamp, timestamp), rootPath, $"{rootPath}_data");
     }
 
     private sealed class ProjectStoreStub : IProjectStore
     {
         public Task<ProjectWorkspace> CreateAsync(TranslationProject project, string rootPath, CancellationToken cancellationToken)
-            => Task.FromResult(new ProjectWorkspace(project, rootPath));
+            => Task.FromResult(new ProjectWorkspace(project, rootPath, $"{rootPath}_data"));
 
         public Task<ProjectWorkspace> OpenAsync(string rootPath, CancellationToken cancellationToken)
-            => Task.FromResult(new ProjectWorkspace(new TranslationProject(Guid.NewGuid(), "Opened", "Series", DateTimeOffset.Now, DateTimeOffset.Now), rootPath));
+            => Task.FromResult(new ProjectWorkspace(new TranslationProject(Guid.NewGuid(), "Opened", "Series", DateTimeOffset.Now, DateTimeOffset.Now), rootPath, $"{rootPath}_data"));
     }
 
     private sealed class ChapterStoreStub : IChapterStore
@@ -303,6 +253,14 @@ public sealed class WorkspaceTopMenuInteractionTests
             ChapterSource source,
             IProgress<ChapterImportProgress>? progress,
             CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<ChapterIndexResult> IndexChapterInPlaceAsync(
+            ProjectWorkspace workspace,
+            string chapterFolderPath,
+            ChapterNumber chapterNumber,
+            string? title,
+            CancellationToken cancellationToken)
+            => throw new NotSupportedException();
 
         public Task<IReadOnlyList<Chapter>> GetChaptersAsync(ProjectWorkspace workspace, CancellationToken cancellationToken)
             => Task.FromResult<IReadOnlyList<Chapter>>([]);
@@ -318,7 +276,7 @@ public sealed class WorkspaceTopMenuInteractionTests
     private sealed class DialogServiceStub : IProjectDialogService
     {
         public CreateProjectRequest? ShowNewProjectDialog() => null;
-        public ImportChapterDialogResult? ShowImportChapterDialog() => null;
+        public ImportChapterDialogResult? ShowImportChapterDialog(string? initialSourceFolder = null) => null;
         public string? PickProjectFolder() => null;
     }
 
@@ -339,7 +297,10 @@ public sealed class WorkspaceTopMenuInteractionTests
     {
         public Task<PagePreview> LoadAsync(
             string filePath, int rawPixelWidth, int rawPixelHeight, CancellationToken cancellationToken)
-            => Task.FromResult(new PagePreview(new DrawingImage(), 100, 100));
+            => Task.FromResult(new PagePreview(new DrawingImage(), 100, 100, rawPixelWidth, rawPixelHeight));
+
+        public Task<PagePreview> LoadImageAsync(string filePath, CancellationToken cancellationToken)
+            => Task.FromResult(new PagePreview(new DrawingImage(), 100, 100, 100, 100));
     }
 
     private sealed class TemporaryDirectory : IDisposable

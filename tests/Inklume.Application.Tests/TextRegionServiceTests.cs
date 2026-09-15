@@ -91,7 +91,7 @@ public sealed class TextRegionServiceTests
     private static (TextRegionService, InMemoryTextRegionStore, ProjectWorkspace, Page) CreateFixture()
     {
         var project = new TranslationProject(Guid.NewGuid(), "Project", "Series", Timestamp, Timestamp);
-        var workspace = new ProjectWorkspace(project, @"C:\Project");
+        var workspace = new ProjectWorkspace(project, @"C:\Project", @"C:\Data\Project");
         var page = new Page(
             Guid.NewGuid(), Guid.NewGuid(), 1, "page.png", "page.png", new string('A', 64), 1080, 15000);
         var store = new InMemoryTextRegionStore();

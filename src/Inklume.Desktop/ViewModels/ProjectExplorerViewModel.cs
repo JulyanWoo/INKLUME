@@ -67,7 +67,9 @@ public sealed partial class ProjectExplorerViewModel : ObservableObject
         HasChapters = chapters.Count > 0;
 
         ProjectExplorerNode projectNode = ProjectExplorerNode.CreateProject(_workspace);
-        IReadOnlyList<ProjectExplorerNode> rootEntries = DiscoverRootEntries();
+        IReadOnlyList<ProjectExplorerNode> rootEntries = await Task.Run(
+            () => DiscoverDirectoryEntries(_workspace.SourceRoot, chapters), cancellationToken);
+
         foreach (ProjectExplorerNode entry in rootEntries)
         {
             projectNode.Children.Add(entry);
@@ -91,70 +93,150 @@ public sealed partial class ProjectExplorerViewModel : ObservableObject
         await InitializeAsync(cancellationToken);
     }
 
-    private IReadOnlyList<ProjectExplorerNode> DiscoverRootEntries()
+    public async Task RefreshChaptersAsync()
+    {
+        ProjectExplorerNode? chaptersNode = Roots.FirstOrDefault()?.Children
+            .FirstOrDefault(c => c.Kind == ExplorerNodeKind.ChaptersFolder);
+        if (chaptersNode is not null)
+        {
+            await chaptersNode.ReloadAsync();
+        }
+        else
+        {
+            await InitializeAsync();
+        }
+    }
+
+    private IReadOnlyList<ProjectExplorerNode> DiscoverDirectoryEntries(
+        string directoryPath, IReadOnlyList<Chapter> persistedChapters)
     {
         var entries = new List<ProjectExplorerNode>();
-        string rootPath = _workspace.RootPath;
+        bool isRoot = string.Equals(
+            Path.GetFullPath(directoryPath),
+            Path.GetFullPath(_workspace.SourceRoot),
+            StringComparison.OrdinalIgnoreCase);
 
-        // 1. chapters folder - always present in an INKLUME project
-        string chaptersPath = Path.Combine(rootPath, "chapters");
-        entries.Add(ProjectExplorerNode.CreateChaptersFolder(chaptersPath, LoadChaptersFolderAsync));
+        if (!Directory.Exists(directoryPath))
+        {
+            if (isRoot)
+            {
+                // In-memory or mock workspace support
+                entries.Add(ProjectExplorerNode.CreateChaptersFolder(
+                    Path.Combine(directoryPath, "chapters"), LoadChaptersFolderAsync));
+                entries.Add(ProjectExplorerNode.CreateContextFolder(
+                    Path.Combine(directoryPath, "context"), LoadContextFolderAsync));
+            }
 
-        // 2. context folder - always present in an INKLUME project
-        string contextPath = Path.Combine(rootPath, "context");
-        entries.Add(ProjectExplorerNode.CreateContextFolder(contextPath, LoadContextFolderAsync));
+            return entries;
+        }
 
-        if (!Directory.Exists(rootPath))
+        if (!IsSafePath(directoryPath))
         {
             return entries;
         }
 
         try
         {
-            // 3. project.db
-            string dbPath = Path.Combine(rootPath, PathSafety.DatabaseFileName);
-            if (File.Exists(dbPath))
+            if (isRoot)
             {
-                entries.Add(ProjectExplorerNode.CreateProjectDatabase(dbPath));
+                string chaptersDir = Path.Combine(directoryPath, "chapters");
+                if (Directory.Exists(chaptersDir) || persistedChapters.Count > 0)
+                {
+                    entries.Add(ProjectExplorerNode.CreateChaptersFolder(chaptersDir, LoadChaptersFolderAsync));
+                }
+
+                string contextDir = Path.Combine(directoryPath, "context");
+                if (Directory.Exists(contextDir))
+                {
+                    entries.Add(ProjectExplorerNode.CreateContextFolder(contextDir, LoadContextFolderAsync));
+                }
+
+                foreach (string dirPath in Directory.EnumerateDirectories(directoryPath))
+                {
+                    string dirName = Path.GetFileName(dirPath);
+                    if (dirName.StartsWith('.') || !IsSafePath(dirPath))
+                    {
+                        continue;
+                    }
+
+                    if (dirName.Equals("chapters", StringComparison.OrdinalIgnoreCase) ||
+                        dirName.Equals("context", StringComparison.OrdinalIgnoreCase) ||
+                        dirName.Equals("cache", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue; // handled explicitly above or hidden (cache)
+                    }
+
+                    bool isCandidate = (dirName.StartsWith("Chapter", StringComparison.OrdinalIgnoreCase) ||
+                                        ChapterNumber.TryParse(dirName, out _)) &&
+                                       ContainsSupportedImagesDirectly(dirPath);
+                    entries.Add(ProjectExplorerNode.CreateGenericFolder(
+                        dirName, dirPath, LoadGenericFolderAsync, isChapterCandidate: isCandidate));
+                }
+
+                foreach (string filePath in Directory.EnumerateFiles(directoryPath))
+                {
+                    string fileName = Path.GetFileName(filePath);
+                    if (fileName.StartsWith('.') || !IsSafePath(filePath))
+                    {
+                        continue;
+                    }
+
+                    if (fileName.Equals("project.db", StringComparison.OrdinalIgnoreCase) ||
+                        fileName.Equals("workspace.db", StringComparison.OrdinalIgnoreCase))
+                    {
+                        entries.Add(ProjectExplorerNode.CreateProjectDatabase(fileName, filePath));
+                    }
+                    else
+                    {
+                        entries.Add(CreateFileNode(fileName, filePath));
+                    }
+                }
+
+                return [.. entries
+                    .OrderBy(node => node.Kind switch {
+                        ExplorerNodeKind.ChaptersFolder => 0,
+                        ExplorerNodeKind.ContextFolder => 1,
+                        ExplorerNodeKind.ProjectDatabase => 2,
+                        ExplorerNodeKind.GenericFolder => 3,
+                        ExplorerNodeKind.GenericImageFile => 4,
+                        _ => 5
+                    })
+                    .ThenBy(node => node.DisplayName, NaturalFileNameComparer.Instance)];
             }
 
-            // 4. Safe user-owned root directories (excluding cache and internal files)
-            foreach (string dirPath in Directory.EnumerateDirectories(rootPath))
+            // Subfolder enumeration
+            foreach (string dirPath in Directory.EnumerateDirectories(directoryPath))
             {
                 string dirName = Path.GetFileName(dirPath);
-                if (string.Equals(dirName, "chapters", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(dirName, "context", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(dirName, "cache", StringComparison.OrdinalIgnoreCase)
-                    || dirName.StartsWith('.')
-                    || !IsSafePath(dirPath))
+                if (dirName.StartsWith('.') || dirName.Equals("cache", StringComparison.OrdinalIgnoreCase) || !IsSafePath(dirPath))
                 {
                     continue;
                 }
 
-                entries.Add(ProjectExplorerNode.CreateGenericFolder(dirName, dirPath, LoadGenericFolderAsync));
+                bool isCandidate = ContainsSupportedImagesDirectly(dirPath);
+                entries.Add(ProjectExplorerNode.CreateGenericFolder(
+                    dirName, dirPath, LoadGenericFolderAsync, isChapterCandidate: isCandidate));
             }
 
-            // 5. Safe user-owned root files (excluding project.db, creation lock, and internal files)
-            foreach (string filePath in Directory.EnumerateFiles(rootPath))
+            foreach (string filePath in Directory.EnumerateFiles(directoryPath))
             {
                 string fileName = Path.GetFileName(filePath);
-                if (string.Equals(fileName, PathSafety.DatabaseFileName, StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(fileName, PathSafety.CreationLockFileName, StringComparison.OrdinalIgnoreCase)
-                    || fileName.StartsWith('.')
-                    || !IsSafePath(filePath))
+                if (fileName.StartsWith('.') || !IsSafePath(filePath))
                 {
                     continue;
                 }
 
-                entries.Add(ProjectExplorerNode.CreateGenericFile(fileName, filePath));
+                entries.Add(CreateFileNode(fileName, filePath));
             }
         }
         catch (Exception exception)
         {
-            Trace.TraceError("Failed to discover root entries in '{0}': {1}", rootPath, exception);
+            Trace.TraceError("Failed to discover entries in '{0}': {1}", directoryPath, exception);
         }
 
-        return entries;
+        return [.. entries
+            .OrderBy(node => node.Kind == ExplorerNodeKind.GenericFolder ? 0 : 1)
+            .ThenBy(node => node.DisplayName, NaturalFileNameComparer.Instance)];
     }
 
     private async Task<IReadOnlyList<ProjectExplorerNode>> LoadChaptersFolderAsync(ProjectExplorerNode parent)
@@ -166,9 +248,11 @@ public sealed partial class ProjectExplorerViewModel : ObservableObject
 
         Dictionary<string, Chapter> chapterByFolder = chapters
             .ToDictionary(c => c.Number.ToFolderName(), StringComparer.OrdinalIgnoreCase);
+        Dictionary<decimal, Chapter> chapterByNumber = chapters
+            .ToDictionary(c => c.Number.Value);
 
-        HashSet<string> seenChapters = new(StringComparer.OrdinalIgnoreCase);
-        string chaptersPath = parent.FullPath ?? Path.Combine(_workspace.RootPath, "chapters");
+        HashSet<Guid> seenChapterIds = [];
+        string chaptersPath = parent.FullPath ?? Path.Combine(_workspace.SourceRoot, "chapters");
 
         if (Directory.Exists(chaptersPath))
         {
@@ -176,29 +260,35 @@ public sealed partial class ProjectExplorerViewModel : ObservableObject
             {
                 foreach (string dirPath in Directory.EnumerateDirectories(chaptersPath))
                 {
-                    if (!IsSafePath(dirPath))
+                    if (!IsSafePath(dirPath) || Path.GetFileName(dirPath).StartsWith('.'))
                     {
                         continue;
                     }
 
                     string dirName = Path.GetFileName(dirPath);
-                    if (chapterByFolder.TryGetValue(dirName, out Chapter? chapter))
+                    if (chapterByFolder.TryGetValue(dirName, out Chapter? chapter) ||
+                        (ChapterNumber.TryParse(dirName, out ChapterNumber parsedNumber) && chapterByNumber.TryGetValue(parsedNumber.Value, out chapter)))
                     {
-                        seenChapters.Add(dirName);
+                        seenChapterIds.Add(chapter.Id);
                         result.Add(ProjectExplorerNode.CreateChapter(chapter, dirPath, LoadChapterAsync));
                     }
                     else
                     {
-                        result.Add(ProjectExplorerNode.CreateGenericFolder(dirName, dirPath, LoadGenericFolderAsync));
+                        bool isCandidate = ContainsSupportedImagesDirectly(dirPath);
+                        result.Add(ProjectExplorerNode.CreateGenericFolder(
+                            dirName, dirPath, LoadGenericFolderAsync, isChapterCandidate: isCandidate));
                     }
                 }
 
                 foreach (string filePath in Directory.EnumerateFiles(chaptersPath))
                 {
-                    if (IsSafePath(filePath))
+                    if (!IsSafePath(filePath) || Path.GetFileName(filePath).StartsWith('.'))
                     {
-                        result.Add(ProjectExplorerNode.CreateGenericFile(Path.GetFileName(filePath), filePath));
+                        continue;
                     }
+
+                    string fileName = Path.GetFileName(filePath);
+                    result.Add(CreateFileNode(fileName, filePath));
                 }
             }
             catch (Exception exception)
@@ -207,21 +297,20 @@ public sealed partial class ProjectExplorerViewModel : ObservableObject
             }
         }
 
-        // Also add any persisted chapters that might not have matching physical folders on disk yet
+        // Also add any persisted chapters that do not have matching physical directories on disk yet
         foreach (Chapter chapter in chapters)
         {
-            string folderName = chapter.Number.ToFolderName();
-            if (!seenChapters.Contains(folderName))
+            if (!seenChapterIds.Contains(chapter.Id))
             {
-                string expectedPath = Path.Combine(chaptersPath, folderName);
+                string expectedPath = Path.Combine(chaptersPath, chapter.Number.ToFolderName());
                 result.Add(ProjectExplorerNode.CreateChapter(chapter, expectedPath, LoadChapterAsync));
             }
         }
 
-        // Sort: Chapters by Chapter.Number, then others by DisplayName
-        return [.. result.OrderBy(node => node.Kind == ExplorerNodeKind.Chapter ? 0 : 1)
+        return [.. result
+            .OrderBy(node => node.Kind == ExplorerNodeKind.Chapter ? 0 : (node.Kind == ExplorerNodeKind.GenericFolder ? 1 : 2))
             .ThenBy(node => node.Chapter?.Number.Value ?? 0m)
-            .ThenBy(node => node.DisplayName, StringComparer.OrdinalIgnoreCase)];
+            .ThenBy(node => node.DisplayName, NaturalFileNameComparer.Instance)];
     }
 
     private async Task<IReadOnlyList<ProjectExplorerNode>> LoadChapterAsync(ProjectExplorerNode parent)
@@ -233,7 +322,7 @@ public sealed partial class ProjectExplorerViewModel : ObservableObject
                 ?? throw new InvalidOperationException("The chapter node has no chapter metadata.");
 
             string chapterPath = parent.FullPath
-                ?? Path.Combine(_workspace.RootPath, "chapters", chapter.Number.ToFolderName());
+                ?? Path.Combine(_workspace.SourceRoot, "chapters", chapter.Number.ToFolderName());
             string expectedRawFolderName = $"{chapter.Number.ToFolderName()}_raw";
 
             if (!Directory.Exists(chapterPath))
@@ -248,13 +337,14 @@ public sealed partial class ProjectExplorerViewModel : ObservableObject
             {
                 foreach (string dirPath in Directory.EnumerateDirectories(chapterPath))
                 {
-                    if (!IsSafePath(dirPath))
+                    if (!IsSafePath(dirPath) || Path.GetFileName(dirPath).StartsWith('.'))
                     {
                         continue;
                     }
 
                     string dirName = Path.GetFileName(dirPath);
-                    if (string.Equals(dirName, expectedRawFolderName, StringComparison.OrdinalIgnoreCase))
+                    if (string.Equals(dirName, expectedRawFolderName, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(dirName, "raw", StringComparison.OrdinalIgnoreCase))
                     {
                         foundRawFolder = true;
                         result.Add(ProjectExplorerNode.CreateRawFolder(dirName, chapter, dirPath, LoadRawFolderAsync));
@@ -267,10 +357,13 @@ public sealed partial class ProjectExplorerViewModel : ObservableObject
 
                 foreach (string filePath in Directory.EnumerateFiles(chapterPath))
                 {
-                    if (IsSafePath(filePath))
+                    if (!IsSafePath(filePath) || Path.GetFileName(filePath).StartsWith('.'))
                     {
-                        result.Add(ProjectExplorerNode.CreateGenericFile(Path.GetFileName(filePath), filePath));
+                        continue;
                     }
+
+                    string fileName = Path.GetFileName(filePath);
+                    result.Add(CreateFileNode(fileName, filePath));
                 }
             }
             catch (Exception exception)
@@ -309,7 +402,7 @@ public sealed partial class ProjectExplorerViewModel : ObservableObject
             {
                 foreach (string filePath in Directory.EnumerateFiles(rawPath))
                 {
-                    if (!IsSafePath(filePath))
+                    if (!IsSafePath(filePath) || Path.GetFileName(filePath).StartsWith('.'))
                     {
                         continue;
                     }
@@ -322,15 +415,16 @@ public sealed partial class ProjectExplorerViewModel : ObservableObject
                     }
                     else
                     {
-                        result.Add(ProjectExplorerNode.CreateGenericFile(fileName, filePath));
+                        result.Add(CreateFileNode(fileName, filePath));
                     }
                 }
 
                 foreach (string dirPath in Directory.EnumerateDirectories(rawPath))
                 {
-                    if (IsSafePath(dirPath))
+                    if (IsSafePath(dirPath) && !Path.GetFileName(dirPath).StartsWith('.'))
                     {
-                        result.Add(ProjectExplorerNode.CreateGenericFolder(Path.GetFileName(dirPath), dirPath, LoadGenericFolderAsync));
+                        result.Add(ProjectExplorerNode.CreateGenericFolder(
+                            Path.GetFileName(dirPath), dirPath, LoadGenericFolderAsync));
                     }
                 }
             }
@@ -350,113 +444,146 @@ public sealed partial class ProjectExplorerViewModel : ObservableObject
             }
         }
 
-        // Sort: Pages by Page.Number, then others by DisplayName
-        return [.. result.OrderBy(node => node.Kind == ExplorerNodeKind.Page ? 0 : 1)
+        return [.. result
+            .OrderBy(node => node.Kind == ExplorerNodeKind.Page ? 0 : 1)
             .ThenBy(node => node.Page?.Page.Number ?? 0)
-            .ThenBy(node => node.DisplayName, StringComparer.OrdinalIgnoreCase)];
+            .ThenBy(node => node.DisplayName, NaturalFileNameComparer.Instance)];
     }
 
     private Task<IReadOnlyList<ProjectExplorerNode>> LoadContextFolderAsync(ProjectExplorerNode parent)
     {
         var result = new List<ProjectExplorerNode>();
-        string contextPath = parent.FullPath ?? Path.Combine(_workspace.RootPath, "context");
-
-        if (!Directory.Exists(contextPath))
-        {
-            return Task.FromResult<IReadOnlyList<ProjectExplorerNode>>(result);
-        }
-
+        string contextPath = parent.FullPath ?? Path.Combine(_workspace.SourceRoot, "context");
         string[] reservedFiles = ["series.json", "characters.json", "glossary.json", "translation_rules.json"];
 
-        try
+        if (Directory.Exists(contextPath))
         {
-            foreach (string filePath in Directory.EnumerateFiles(contextPath))
+            try
             {
-                if (!IsSafePath(filePath))
+                foreach (string filePath in Directory.EnumerateFiles(contextPath))
                 {
-                    continue;
+                    if (!IsSafePath(filePath) || Path.GetFileName(filePath).StartsWith('.'))
+                    {
+                        continue;
+                    }
+
+                    string fileName = Path.GetFileName(filePath);
+                    if (reservedFiles.Contains(fileName, StringComparer.OrdinalIgnoreCase))
+                    {
+                        result.Add(ProjectExplorerNode.CreateContextFile(fileName, filePath));
+                    }
+                    else
+                    {
+                        result.Add(CreateFileNode(fileName, filePath));
+                    }
                 }
 
-                string fileName = Path.GetFileName(filePath);
-                if (reservedFiles.Contains(fileName, StringComparer.OrdinalIgnoreCase))
+                foreach (string dirPath in Directory.EnumerateDirectories(contextPath))
                 {
-                    result.Add(ProjectExplorerNode.CreateContextFile(fileName, filePath));
-                }
-                else
-                {
-                    result.Add(ProjectExplorerNode.CreateGenericFile(fileName, filePath));
+                    if (IsSafePath(dirPath) && !Path.GetFileName(dirPath).StartsWith('.'))
+                    {
+                        result.Add(ProjectExplorerNode.CreateGenericFolder(
+                            Path.GetFileName(dirPath), dirPath, LoadGenericFolderAsync));
+                    }
                 }
             }
-
-            foreach (string dirPath in Directory.EnumerateDirectories(contextPath))
+            catch (Exception exception)
             {
-                if (IsSafePath(dirPath))
-                {
-                    result.Add(ProjectExplorerNode.CreateGenericFolder(Path.GetFileName(dirPath), dirPath, LoadGenericFolderAsync));
-                }
+                Trace.TraceError("Failed to enumerate context folder '{0}': {1}", contextPath, exception);
             }
         }
-        catch (Exception exception)
-        {
-            Trace.TraceError("Failed to enumerate context folder '{0}': {1}", contextPath, exception);
-        }
 
-        // Sort: Context files first (ordered by reserved list), then others alphabetically
         return Task.FromResult<IReadOnlyList<ProjectExplorerNode>>([.. result
             .OrderBy(node => node.Kind == ExplorerNodeKind.ContextFile ? 0 : 1)
             .ThenBy(node => node.Kind == ExplorerNodeKind.ContextFile ? Array.IndexOf(reservedFiles, node.DisplayName.ToLowerInvariant()) : 999)
             .ThenBy(node => node.DisplayName, StringComparer.OrdinalIgnoreCase)]);
     }
 
-    private Task<IReadOnlyList<ProjectExplorerNode>> LoadGenericFolderAsync(ProjectExplorerNode parent)
+    private async Task<IReadOnlyList<ProjectExplorerNode>> LoadGenericFolderAsync(ProjectExplorerNode parent)
     {
-        var result = new List<ProjectExplorerNode>();
         string folderPath = parent.FullPath ?? string.Empty;
-
         if (!Directory.Exists(folderPath) || !IsSafePath(folderPath))
         {
-            return Task.FromResult<IReadOnlyList<ProjectExplorerNode>>(result);
+            return [];
         }
 
+        IReadOnlyList<Chapter> persistedChapters = await Task.Run(
+            () => _chapterService.GetChaptersAsync(_workspace, CancellationToken.None));
+
+        return await Task.Run(() => DiscoverDirectoryEntries(folderPath, persistedChapters));
+    }
+
+    private static bool TryRecognizeChapterFolder(
+        string dirPath,
+        IReadOnlyDictionary<string, Chapter> chapterByFolder,
+        IReadOnlyDictionary<decimal, Chapter> chapterByNumber,
+        out Chapter? chapter,
+        out ChapterNumber chapterNumber)
+    {
+        string folderName = Path.GetFileName(dirPath);
+
+        if (chapterByFolder.TryGetValue(folderName, out chapter))
+        {
+            chapterNumber = chapter.Number;
+            return true;
+        }
+
+        if (ChapterNumber.TryParse(folderName, out chapterNumber))
+        {
+            if (chapterByNumber.TryGetValue(chapterNumber.Value, out chapter))
+            {
+                return true;
+            }
+
+            if (ContainsSupportedImagesDirectly(dirPath))
+            {
+                chapter = null;
+                return true;
+            }
+        }
+
+        chapter = null;
+        chapterNumber = default;
+        return false;
+    }
+
+    private static ProjectExplorerNode CreateFileNode(string fileName, string filePath)
+    {
+        return SupportedImageFormats.IsSupported(filePath)
+            ? ProjectExplorerNode.CreateGenericImageFile(fileName, filePath)
+            : ProjectExplorerNode.CreateGenericFile(fileName, filePath);
+    }
+
+    private static bool ContainsSupportedImagesDirectly(string dirPath)
+    {
         try
         {
-            foreach (string dirPath in Directory.EnumerateDirectories(folderPath))
+            if (!Directory.Exists(dirPath))
             {
-                if (!IsSafePath(dirPath))
-                {
-                    continue;
-                }
-
-                string dirName = Path.GetFileName(dirPath);
-                result.Add(ProjectExplorerNode.CreateGenericFolder(dirName, dirPath, LoadGenericFolderAsync));
+                return false;
             }
 
-            foreach (string filePath in Directory.EnumerateFiles(folderPath))
+            foreach (string file in Directory.EnumerateFiles(dirPath))
             {
-                if (!IsSafePath(filePath))
+                if (SupportedImageFormats.IsSupported(file))
                 {
-                    continue;
+                    return true;
                 }
-
-                string fileName = Path.GetFileName(filePath);
-                result.Add(ProjectExplorerNode.CreateGenericFile(fileName, filePath));
             }
         }
-        catch (Exception exception)
+        catch
         {
-            Trace.TraceError("Failed to enumerate generic folder '{0}': {1}", folderPath, exception);
+            // Ignore access or IO exceptions during discovery
         }
 
-        return Task.FromResult<IReadOnlyList<ProjectExplorerNode>>([.. result
-            .OrderBy(node => node.Kind == ExplorerNodeKind.GenericFolder ? 0 : 1)
-            .ThenBy(node => node.DisplayName, StringComparer.OrdinalIgnoreCase)]);
+        return false;
     }
 
     private bool IsSafePath(string candidatePath)
     {
         try
         {
-            if (!PathSafety.IsDescendantOf(_workspace.RootPath, candidatePath))
+            if (!PathSafety.IsDescendantOf(_workspace.SourceRoot, candidatePath))
             {
                 return false;
             }
@@ -464,7 +591,7 @@ public sealed partial class ProjectExplorerViewModel : ObservableObject
             if (PathSafety.IsReparsePoint(candidatePath))
             {
                 string target = Path.GetFullPath(candidatePath);
-                if (!PathSafety.IsDescendantOf(_workspace.RootPath, target))
+                if (!PathSafety.IsDescendantOf(_workspace.SourceRoot, target))
                 {
                     return false;
                 }

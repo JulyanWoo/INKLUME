@@ -2,8 +2,10 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Inklume.Application.Projects;
+using Inklume.Application.Workspaces;
 using Inklume.Domain.Projects;
 using Inklume.Infrastructure.Projects;
+using Inklume.Infrastructure.Workspaces;
 using Microsoft.Data.Sqlite;
 using Xunit;
 
@@ -12,6 +14,14 @@ namespace Inklume.Infrastructure.Tests;
 public sealed class FileSystemProjectStoreTests : IDisposable
 {
     private readonly TemporaryWorkspace _temporaryWorkspace = new();
+    private readonly IWorkspaceDataLocation _dataLocation;
+    private readonly FileSystemProjectStore _store;
+
+    public FileSystemProjectStoreTests()
+    {
+        _dataLocation = new DefaultWorkspaceDataLocation(Path.Combine(_temporaryWorkspace.RootPath, "AppData"));
+        _store = new FileSystemProjectStore(_dataLocation);
+    }
 
     [Fact]
     public async Task CreateAsync_ShouldCreateCompleteWorkspace_WhenDestinationDoesNotExist()
@@ -19,16 +29,22 @@ public sealed class FileSystemProjectStoreTests : IDisposable
         string rootPath = _temporaryWorkspace.GetPath("New project");
         TranslationProject project = CreateProject();
 
-        ProjectWorkspace workspace = await new FileSystemProjectStore().CreateAsync(project, rootPath, TestContext.Current.CancellationToken);
+        ProjectWorkspace workspace = await _store.CreateAsync(project, rootPath, TestContext.Current.CancellationToken);
 
-        Assert.Equal(Path.GetFullPath(rootPath), workspace.RootPath);
-        Assert.True(File.Exists(Path.Combine(rootPath, "project.db")));
-        Assert.Empty(Directory.EnumerateFileSystemEntries(Path.Combine(rootPath, "chapters")));
-        Assert.Empty(Directory.EnumerateFileSystemEntries(Path.Combine(rootPath, "cache")));
+        Assert.Equal(Path.GetFullPath(rootPath), workspace.SourceRoot);
+        // Source root is user content and must NOT contain project.db or workspace.db
+        Assert.False(File.Exists(Path.Combine(rootPath, "project.db")));
+        Assert.False(File.Exists(Path.Combine(rootPath, "workspace.db")));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(rootPath));
+
+        // Data root must contain workspace.db, context, and cache
+        Assert.True(File.Exists(workspace.DatabasePath));
+        Assert.True(Directory.Exists(workspace.ContextRoot));
+        Assert.True(Directory.Exists(workspace.CacheRoot));
 
         foreach (string fileName in new[] { "series.json", "characters.json", "glossary.json", "translation_rules.json" })
         {
-            await using FileStream stream = File.OpenRead(Path.Combine(rootPath, "context", fileName));
+            await using FileStream stream = File.OpenRead(Path.Combine(workspace.ContextRoot, fileName));
             using JsonDocument document = await JsonDocument.ParseAsync(stream, cancellationToken: TestContext.Current.CancellationToken);
             Assert.Equal(1, document.RootElement.GetProperty("formatVersion").GetInt32());
             Assert.Equal(project.Id, document.RootElement.GetProperty("projectId").GetGuid());
@@ -44,16 +60,17 @@ public sealed class FileSystemProjectStoreTests : IDisposable
     {
         string rootPath = _temporaryWorkspace.GetPath("Persisted project");
         TranslationProject project = CreateProject();
-        await new FileSystemProjectStore().CreateAsync(project, rootPath, TestContext.Current.CancellationToken);
+        await _store.CreateAsync(project, rootPath, TestContext.Current.CancellationToken);
 
-        ProjectWorkspace reopened = await new FileSystemProjectStore().OpenAsync(rootPath, TestContext.Current.CancellationToken);
+        var secondStore = new FileSystemProjectStore(_dataLocation);
+        ProjectWorkspace reopened = await secondStore.OpenAsync(rootPath, TestContext.Current.CancellationToken);
 
         Assert.Equal(project.Id, reopened.Project.Id);
         Assert.Equal(project.Name, reopened.Project.Name);
         Assert.Equal(project.SeriesName, reopened.Project.SeriesName);
         Assert.Equal(project.CreatedAt, reopened.Project.CreatedAt);
         Assert.Equal(project.UpdatedAt, reopened.Project.UpdatedAt);
-        Assert.Equal(rootPath, reopened.RootPath);
+        Assert.Equal(rootPath, reopened.SourceRoot);
     }
 
     [Fact]
@@ -62,10 +79,10 @@ public sealed class FileSystemProjectStoreTests : IDisposable
         string rootPath = _temporaryWorkspace.GetPath("Empty destination");
         Directory.CreateDirectory(rootPath);
 
-        await new FileSystemProjectStore().CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken);
+        await _store.CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken);
 
-        ProjectWorkspace reopened = await new FileSystemProjectStore().OpenAsync(rootPath, TestContext.Current.CancellationToken);
-        Assert.Equal(rootPath, reopened.RootPath);
+        ProjectWorkspace reopened = await _store.OpenAsync(rootPath, TestContext.Current.CancellationToken);
+        Assert.Equal(rootPath, reopened.SourceRoot);
     }
 
     [Theory]
@@ -75,24 +92,24 @@ public sealed class FileSystemProjectStoreTests : IDisposable
     {
         string rootPath = _temporaryWorkspace.GetPath(directoryName);
         TranslationProject project = CreateProject(directoryName, seriesName);
-        await new FileSystemProjectStore().CreateAsync(project, rootPath, TestContext.Current.CancellationToken);
+        await _store.CreateAsync(project, rootPath, TestContext.Current.CancellationToken);
 
-        ProjectWorkspace reopened = await new FileSystemProjectStore().OpenAsync(rootPath, TestContext.Current.CancellationToken);
+        ProjectWorkspace reopened = await _store.OpenAsync(rootPath, TestContext.Current.CancellationToken);
 
         Assert.Equal(directoryName, reopened.Project.Name);
         Assert.Equal(seriesName, reopened.Project.SeriesName);
-        Assert.Equal(rootPath, reopened.RootPath);
+        Assert.Equal(rootPath, reopened.SourceRoot);
     }
 
     [Fact]
     public async Task CreateAsync_ShouldRejectExistingProjectWithoutChangingFiles_WhenDestinationIsAlreadyInitialized()
     {
         string rootPath = _temporaryWorkspace.GetPath("Existing project");
-        await new FileSystemProjectStore().CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken);
+        await _store.CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken);
         FileSnapshot[] before = CaptureFiles(rootPath);
 
         ProjectOperationException exception = await Assert.ThrowsAsync<ProjectOperationException>(
-            () => new FileSystemProjectStore().CreateAsync(CreateProject("Replacement"), rootPath, TestContext.Current.CancellationToken));
+            () => _store.CreateAsync(CreateProject("Replacement"), rootPath, TestContext.Current.CancellationToken));
 
         Assert.Equal(ProjectErrorCode.AlreadyExists, exception.Code);
         Assert.Equal(before, CaptureFiles(rootPath));
@@ -106,16 +123,15 @@ public sealed class FileSystemProjectStoreTests : IDisposable
         string originalPath = Path.Combine(rootPath, "original.txt");
         await File.WriteAllTextAsync(originalPath, "Preserve this original document.", TestContext.Current.CancellationToken);
 
-        ProjectWorkspace workspace = await new FileSystemProjectStore().CreateAsync(
+        ProjectWorkspace workspace = await _store.CreateAsync(
             CreateProject(), rootPath, TestContext.Current.CancellationToken);
 
-        Assert.Equal(Path.GetFullPath(rootPath), workspace.RootPath);
+        Assert.Equal(Path.GetFullPath(rootPath), workspace.SourceRoot);
         Assert.True(File.Exists(originalPath));
         Assert.Equal("Preserve this original document.", await File.ReadAllTextAsync(originalPath, TestContext.Current.CancellationToken));
-        Assert.True(File.Exists(Path.Combine(rootPath, "project.db")));
-        Assert.True(Directory.Exists(Path.Combine(rootPath, "chapters")));
-        Assert.True(Directory.Exists(Path.Combine(rootPath, "context")));
-        Assert.True(Directory.Exists(Path.Combine(rootPath, "cache")));
+        Assert.False(File.Exists(Path.Combine(rootPath, "project.db")));
+        Assert.False(File.Exists(Path.Combine(rootPath, "workspace.db")));
+        Assert.True(File.Exists(workspace.DatabasePath));
     }
 
     [Fact]
@@ -127,10 +143,10 @@ public sealed class FileSystemProjectStoreTests : IDisposable
         string refFile = Path.Combine(refDir, "notes.txt");
         await File.WriteAllTextAsync(refFile, "Reference material", TestContext.Current.CancellationToken);
 
-        ProjectWorkspace workspace = await new FileSystemProjectStore().CreateAsync(
+        ProjectWorkspace workspace = await _store.CreateAsync(
             CreateProject(), rootPath, TestContext.Current.CancellationToken);
 
-        Assert.Equal(Path.GetFullPath(rootPath), workspace.RootPath);
+        Assert.Equal(Path.GetFullPath(rootPath), workspace.SourceRoot);
         Assert.True(Directory.Exists(refDir));
         Assert.True(File.Exists(refFile));
         Assert.Equal("Reference material", await File.ReadAllTextAsync(refFile, TestContext.Current.CancellationToken));
@@ -147,7 +163,7 @@ public sealed class FileSystemProjectStoreTests : IDisposable
         string noteFile = Path.Combine(manualChapter, "note.txt");
         await File.WriteAllTextAsync(noteFile, "Manual chapter note", TestContext.Current.CancellationToken);
 
-        ProjectWorkspace workspace = await new FileSystemProjectStore().CreateAsync(
+        ProjectWorkspace workspace = await _store.CreateAsync(
             CreateProject(), rootPath, TestContext.Current.CancellationToken);
 
         Assert.True(Directory.Exists(chaptersDir));
@@ -165,67 +181,12 @@ public sealed class FileSystemProjectStoreTests : IDisposable
         string customFile = Path.Combine(contextDir, "custom_notes.txt");
         await File.WriteAllTextAsync(customFile, "Context notes", TestContext.Current.CancellationToken);
 
-        ProjectWorkspace workspace = await new FileSystemProjectStore().CreateAsync(
+        ProjectWorkspace workspace = await _store.CreateAsync(
             CreateProject(), rootPath, TestContext.Current.CancellationToken);
 
         Assert.True(File.Exists(customFile));
         Assert.Equal("Context notes", await File.ReadAllTextAsync(customFile, TestContext.Current.CancellationToken));
-        Assert.True(File.Exists(Path.Combine(contextDir, "series.json")));
-    }
-
-    [Fact]
-    public async Task CreateAsync_ShouldRejectAndNotOverwrite_WhenPreExistingContextFileIsConflicting()
-    {
-        string rootPath = _temporaryWorkspace.GetPath("Conflicting context");
-        string contextDir = Path.Combine(rootPath, "context");
-        Directory.CreateDirectory(contextDir);
-        string seriesPath = Path.Combine(contextDir, "series.json");
-        await File.WriteAllTextAsync(seriesPath, "NOT_JSON_OR_WRONG_PROJECT", TestContext.Current.CancellationToken);
-
-        ProjectOperationException exception = await Assert.ThrowsAsync<ProjectOperationException>(
-            () => new FileSystemProjectStore().CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken));
-
-        Assert.Equal(ProjectErrorCode.InvalidProject, exception.Code);
-        Assert.Equal("NOT_JSON_OR_WRONG_PROJECT", await File.ReadAllTextAsync(seriesPath, TestContext.Current.CancellationToken));
-    }
-
-    [Fact]
-    public async Task CreateAsync_ShouldRejectAndNotOverwrite_WhenProjectDbIsInvalidOrConflicting()
-    {
-        string rootPath = _temporaryWorkspace.GetPath("Conflicting db");
-        Directory.CreateDirectory(rootPath);
-        string dbPath = Path.Combine(rootPath, "project.db");
-        await File.WriteAllTextAsync(dbPath, "PLAIN_TEXT_NOT_SQLITE", TestContext.Current.CancellationToken);
-
-        ProjectOperationException exception = await Assert.ThrowsAsync<ProjectOperationException>(
-            () => new FileSystemProjectStore().CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken));
-
-        Assert.Equal(ProjectErrorCode.InvalidProject, exception.Code);
-        Assert.Equal("PLAIN_TEXT_NOT_SQLITE", await File.ReadAllTextAsync(dbPath, TestContext.Current.CancellationToken));
-    }
-
-    [Fact]
-    public async Task CreateAsync_WhenInitializationFails_ShouldRollbackOnlyCreatedResourcesAndKeepPreExistingUserContent()
-    {
-        string rootPath = _temporaryWorkspace.GetPath("Rollback test");
-        Directory.CreateDirectory(rootPath);
-        string userFile = Path.Combine(rootPath, "user_notes.txt");
-        await File.WriteAllTextAsync(userFile, "Important user notes", TestContext.Current.CancellationToken);
-
-        string contextDir = Path.Combine(rootPath, "context");
-        Directory.CreateDirectory(contextDir);
-        string conflictingSeries = Path.Combine(contextDir, "series.json");
-        await File.WriteAllTextAsync(conflictingSeries, "CORRUPT_JSON_DATA", TestContext.Current.CancellationToken);
-
-        ProjectOperationException exception = await Assert.ThrowsAsync<ProjectOperationException>(
-            () => new FileSystemProjectStore().CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken));
-
-        Assert.True(File.Exists(userFile));
-        Assert.Equal("Important user notes", await File.ReadAllTextAsync(userFile, TestContext.Current.CancellationToken));
-        Assert.True(File.Exists(conflictingSeries));
-        Assert.Equal("CORRUPT_JSON_DATA", await File.ReadAllTextAsync(conflictingSeries, TestContext.Current.CancellationToken));
-
-        Assert.False(File.Exists(Path.Combine(rootPath, "project.db")));
+        Assert.True(File.Exists(Path.Combine(workspace.ContextRoot, "series.json")));
     }
 
     [Fact]
@@ -235,7 +196,7 @@ public sealed class FileSystemProjectStoreTests : IDisposable
         string relativePath = Path.GetRelativePath(Environment.CurrentDirectory, absolutePath);
 
         ProjectOperationException exception = await Assert.ThrowsAsync<ProjectOperationException>(
-            () => new FileSystemProjectStore().CreateAsync(CreateProject(), relativePath, TestContext.Current.CancellationToken));
+            () => _store.CreateAsync(CreateProject(), relativePath, TestContext.Current.CancellationToken));
 
         Assert.Equal(ProjectErrorCode.InvalidPath, exception.Code);
         Assert.False(Directory.Exists(absolutePath));
@@ -244,156 +205,139 @@ public sealed class FileSystemProjectStoreTests : IDisposable
     [Fact]
     public async Task CreateAsync_ShouldRejectTraversalSegments_WithoutCreatingProject()
     {
-        string rootPath = Path.Combine(_temporaryWorkspace.RootPath, "nested", "..", "Traversal destination");
+        string sourceRoot = Path.Combine(_temporaryWorkspace.RootPath, "nested", "..", "Traversal destination");
 
         ProjectOperationException exception = await Assert.ThrowsAsync<ProjectOperationException>(
-            () => new FileSystemProjectStore().CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken));
+            () => _store.CreateAsync(CreateProject(), sourceRoot, TestContext.Current.CancellationToken));
 
         Assert.Equal(ProjectErrorCode.InvalidPath, exception.Code);
-        Assert.Empty(Directory.EnumerateFileSystemEntries(_temporaryWorkspace.RootPath));
+        Assert.False(Directory.Exists(sourceRoot));
     }
 
     [Fact]
     public async Task CreateAsync_ShouldNotCreateFiles_WhenCanceledBeforeStarting()
     {
-        string rootPath = _temporaryWorkspace.GetPath("Canceled destination");
+        string sourceRoot = _temporaryWorkspace.GetPath("Canceled destination");
         using var cancellationSource = new CancellationTokenSource();
         await cancellationSource.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => new FileSystemProjectStore().CreateAsync(CreateProject(), rootPath, cancellationSource.Token));
+            () => _store.CreateAsync(CreateProject(), sourceRoot, cancellationSource.Token));
 
-        Assert.False(Directory.Exists(rootPath));
-    }
-
-    [Fact]
-    public async Task OpenAsync_ShouldUseCurrentLocation_WhenProjectIsRelocated()
-    {
-        string originalPath = _temporaryWorkspace.GetPath("Original location");
-        string relocatedPath = _temporaryWorkspace.GetPath("Relocated project");
-        TranslationProject project = CreateProject();
-        await new FileSystemProjectStore().CreateAsync(project, originalPath, TestContext.Current.CancellationToken);
-        Directory.Move(originalPath, relocatedPath);
-
-        ProjectWorkspace reopened = await new FileSystemProjectStore().OpenAsync(relocatedPath, TestContext.Current.CancellationToken);
-
-        Assert.Equal(project.Id, reopened.Project.Id);
-        Assert.Equal(relocatedPath, reopened.RootPath);
-        Assert.False(Directory.Exists(originalPath));
+        Assert.False(Directory.Exists(sourceRoot));
     }
 
     [Fact]
     public async Task OpenAsync_ShouldLeaveProjectFilesUnchanged_WhenProjectIsValid()
     {
-        string rootPath = _temporaryWorkspace.GetPath("Read only open");
-        await new FileSystemProjectStore().CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken);
-        FileSnapshot[] before = CaptureFiles(rootPath);
+        string sourceRoot = _temporaryWorkspace.GetPath("Read only open");
+        await _store.CreateAsync(CreateProject(), sourceRoot, TestContext.Current.CancellationToken);
+        FileSnapshot[] before = CaptureFiles(sourceRoot);
 
-        await new FileSystemProjectStore().OpenAsync(rootPath, TestContext.Current.CancellationToken);
+        await _store.OpenAsync(sourceRoot, TestContext.Current.CancellationToken);
 
-        Assert.Equal(before, CaptureFiles(rootPath));
+        Assert.Equal(before, CaptureFiles(sourceRoot));
     }
 
     [Fact]
     public async Task OpenAsync_ShouldReportNotFound_WhenDirectoryDoesNotExist()
     {
-        string rootPath = _temporaryWorkspace.GetPath("Missing project");
+        string sourceRoot = _temporaryWorkspace.GetPath("Missing project");
 
         ProjectOperationException exception = await Assert.ThrowsAsync<ProjectOperationException>(
-            () => new FileSystemProjectStore().OpenAsync(rootPath, TestContext.Current.CancellationToken));
+            () => _store.OpenAsync(sourceRoot, TestContext.Current.CancellationToken));
 
         Assert.Equal(ProjectErrorCode.NotFound, exception.Code);
-        Assert.False(Directory.Exists(rootPath));
+        Assert.False(Directory.Exists(sourceRoot));
     }
 
     [Fact]
-    public async Task OpenAsync_ShouldExplainImagesFoundWhenOpeningRawFolder()
+    public async Task OpenAsync_ShouldSucceedAndLeaveFolderUntouched_WhenOpeningRawFolderWithImages()
     {
         string rawFolder = _temporaryWorkspace.GetPath("Raw images folder");
         Directory.CreateDirectory(rawFolder);
-        await File.WriteAllBytesAsync(
-            Path.Combine(rawFolder, "page_01.png"),
-            [137, 80, 78, 71, 13, 10, 26, 10],
-            TestContext.Current.CancellationToken);
+        string imagePath = Path.Combine(rawFolder, "page_01.png");
+        byte[] imageBytes = [137, 80, 78, 71, 13, 10, 26, 10];
+        await File.WriteAllBytesAsync(imagePath, imageBytes, TestContext.Current.CancellationToken);
 
-        ProjectOperationException exception = await Assert.ThrowsAsync<ProjectOperationException>(
-            () => new FileSystemProjectStore().OpenAsync(rawFolder, TestContext.Current.CancellationToken));
+        ProjectWorkspace workspace = await _store.OpenAsync(rawFolder, TestContext.Current.CancellationToken);
 
-        Assert.Equal(ProjectErrorCode.InvalidProject, exception.Code);
-        Assert.Contains("contains comic images", exception.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("not an INKLUME project", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(rawFolder, workspace.SourceRoot);
+        Assert.True(File.Exists(workspace.DatabasePath));
+        Assert.False(File.Exists(Path.Combine(rawFolder, "project.db")));
+        Assert.False(File.Exists(Path.Combine(rawFolder, "workspace.db")));
+        Assert.Equal(imageBytes, await File.ReadAllBytesAsync(imagePath, TestContext.Current.CancellationToken));
+        Assert.Single(Directory.EnumerateFiles(rawFolder));
     }
 
-    [Theory]
-    [InlineData("chapters")]
-    [InlineData("cache")]
-    public async Task OpenAsync_ShouldRejectIncompleteStructure_WhenRequiredDirectoryIsMissing(string directoryName)
+    [Fact]
+    public async Task OpenAsync_ShouldRejectIncompleteStructure_WhenRequiredDirectoryIsMissing()
     {
         string rootPath = _temporaryWorkspace.GetPath("Incomplete project");
-        await new FileSystemProjectStore().CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken);
-        Directory.Delete(Path.Combine(rootPath, directoryName));
+        ProjectWorkspace workspace = await _store.CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken);
+        Directory.Delete(workspace.ContextRoot, recursive: true);
 
         ProjectOperationException exception = await Assert.ThrowsAsync<ProjectOperationException>(
-            () => new FileSystemProjectStore().OpenAsync(rootPath, TestContext.Current.CancellationToken));
+            () => _store.OpenAsync(rootPath, TestContext.Current.CancellationToken));
 
         Assert.Equal(ProjectErrorCode.InvalidProject, exception.Code);
-        Assert.False(Directory.Exists(Path.Combine(rootPath, directoryName)));
+        Assert.False(Directory.Exists(workspace.ContextRoot));
     }
 
     [Fact]
     public async Task OpenAsync_ShouldRejectIncompleteContext_WhenJsonFileIsMissing()
     {
         string rootPath = _temporaryWorkspace.GetPath("Missing context");
-        await new FileSystemProjectStore().CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken);
-        string contextPath = Path.Combine(rootPath, "context", "characters.json");
-        File.Delete(contextPath);
+        ProjectWorkspace workspace = await _store.CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken);
+        string contextFilePath = Path.Combine(workspace.ContextRoot, "characters.json");
+        File.Delete(contextFilePath);
 
         ProjectOperationException exception = await Assert.ThrowsAsync<ProjectOperationException>(
-            () => new FileSystemProjectStore().OpenAsync(rootPath, TestContext.Current.CancellationToken));
+            () => _store.OpenAsync(rootPath, TestContext.Current.CancellationToken));
 
         Assert.Equal(ProjectErrorCode.InvalidProject, exception.Code);
-        Assert.False(File.Exists(contextPath));
+        Assert.False(File.Exists(contextFilePath));
     }
 
     [Fact]
     public async Task OpenAsync_ShouldPreserveInvalidDatabase_WhenDatabaseIsNotSqlite()
     {
         string rootPath = _temporaryWorkspace.GetPath("Corrupted database");
-        await new FileSystemProjectStore().CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken);
-        await File.WriteAllTextAsync(Path.Combine(rootPath, "project.db"), "This is not a SQLite database.", TestContext.Current.CancellationToken);
-        FileSnapshot[] before = CaptureFiles(rootPath);
+        ProjectWorkspace workspace = await _store.CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(workspace.DatabasePath, "This is not a SQLite database.", TestContext.Current.CancellationToken);
+        FileSnapshot[] before = CaptureFiles(workspace.DataRoot);
 
         ProjectOperationException exception = await Assert.ThrowsAsync<ProjectOperationException>(
-            () => new FileSystemProjectStore().OpenAsync(rootPath, TestContext.Current.CancellationToken));
+            () => _store.OpenAsync(rootPath, TestContext.Current.CancellationToken));
 
         Assert.Equal(ProjectErrorCode.InvalidProject, exception.Code);
-        Assert.Equal(before, CaptureFiles(rootPath));
+        Assert.Equal(before, CaptureFiles(workspace.DataRoot));
     }
 
     [Fact]
     public async Task OpenAsync_ShouldPreserveInvalidJson_WhenContextCannotBeDeserialized()
     {
         string rootPath = _temporaryWorkspace.GetPath("Corrupted context");
-        await new FileSystemProjectStore().CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken);
-        await File.WriteAllTextAsync(Path.Combine(rootPath, "context", "glossary.json"), "{ invalid json", TestContext.Current.CancellationToken);
-        FileSnapshot[] before = CaptureFiles(rootPath);
+        ProjectWorkspace workspace = await _store.CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(Path.Combine(workspace.ContextRoot, "glossary.json"), "{ invalid json", TestContext.Current.CancellationToken);
+        FileSnapshot[] before = CaptureFiles(workspace.DataRoot);
 
         ProjectOperationException exception = await Assert.ThrowsAsync<ProjectOperationException>(
-            () => new FileSystemProjectStore().OpenAsync(rootPath, TestContext.Current.CancellationToken));
+            () => _store.OpenAsync(rootPath, TestContext.Current.CancellationToken));
 
         Assert.Equal(ProjectErrorCode.InvalidProject, exception.Code);
-        Assert.Equal(before, CaptureFiles(rootPath));
+        Assert.Equal(before, CaptureFiles(workspace.DataRoot));
     }
 
     [Fact]
     public async Task OpenAsync_ShouldReportIncompatibleVersion_WhenContextHasFutureVersion()
     {
         string rootPath = _temporaryWorkspace.GetPath("Future context");
-        await new FileSystemProjectStore().CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken);
-        await ChangeJsonPropertyAsync(rootPath, "translation_rules.json", "formatVersion", JsonValue.Create(99));
+        ProjectWorkspace workspace = await _store.CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken);
+        await ChangeJsonPropertyAsync(workspace.ContextRoot, "translation_rules.json", "formatVersion", JsonValue.Create(99));
 
         ProjectOperationException exception = await Assert.ThrowsAsync<ProjectOperationException>(
-            () => new FileSystemProjectStore().OpenAsync(rootPath, TestContext.Current.CancellationToken));
+            () => _store.OpenAsync(rootPath, TestContext.Current.CancellationToken));
 
         Assert.Equal(ProjectErrorCode.IncompatibleVersion, exception.Code);
     }
@@ -402,11 +346,11 @@ public sealed class FileSystemProjectStoreTests : IDisposable
     public async Task OpenAsync_ShouldRejectMismatchedContext_WhenProjectIdentityDoesNotMatch()
     {
         string rootPath = _temporaryWorkspace.GetPath("Mismatched context");
-        await new FileSystemProjectStore().CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken);
-        await ChangeJsonPropertyAsync(rootPath, "characters.json", "projectId", JsonValue.Create(Guid.NewGuid()));
+        ProjectWorkspace workspace = await _store.CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken);
+        await ChangeJsonPropertyAsync(workspace.ContextRoot, "characters.json", "projectId", JsonValue.Create(Guid.NewGuid()));
 
         ProjectOperationException exception = await Assert.ThrowsAsync<ProjectOperationException>(
-            () => new FileSystemProjectStore().OpenAsync(rootPath, TestContext.Current.CancellationToken));
+            () => _store.OpenAsync(rootPath, TestContext.Current.CancellationToken));
 
         Assert.Equal(ProjectErrorCode.InvalidProject, exception.Code);
     }
@@ -415,26 +359,26 @@ public sealed class FileSystemProjectStoreTests : IDisposable
     public async Task OpenAsync_ShouldReportIncompatibleVersion_WhenDatabaseHasFutureVersion()
     {
         string rootPath = _temporaryWorkspace.GetPath("Future database");
-        await new FileSystemProjectStore().CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken);
-        await ExecuteSqlAsync(rootPath, "UPDATE Projects SET FormatVersion = 99;");
-        FileSnapshot[] before = CaptureFiles(rootPath);
+        ProjectWorkspace workspace = await _store.CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken);
+        await ExecuteSqlAsync(workspace.DatabasePath, "UPDATE Projects SET FormatVersion = 99;");
+        FileSnapshot[] before = CaptureFiles(workspace.DataRoot);
 
         ProjectOperationException exception = await Assert.ThrowsAsync<ProjectOperationException>(
-            () => new FileSystemProjectStore().OpenAsync(rootPath, TestContext.Current.CancellationToken));
+            () => _store.OpenAsync(rootPath, TestContext.Current.CancellationToken));
 
         Assert.Equal(ProjectErrorCode.IncompatibleVersion, exception.Code);
-        Assert.Equal(before, CaptureFiles(rootPath));
+        Assert.Equal(before, CaptureFiles(workspace.DataRoot));
     }
 
     [Fact]
     public async Task OpenAsync_ShouldRejectInvalidMetadata_WhenProjectNameIsBlank()
     {
         string rootPath = _temporaryWorkspace.GetPath("Invalid metadata");
-        await new FileSystemProjectStore().CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken);
-        await ExecuteSqlAsync(rootPath, "UPDATE Projects SET Name = '';");
+        ProjectWorkspace workspace = await _store.CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken);
+        await ExecuteSqlAsync(workspace.DatabasePath, "UPDATE Projects SET Name = '';");
 
         ProjectOperationException exception = await Assert.ThrowsAsync<ProjectOperationException>(
-            () => new FileSystemProjectStore().OpenAsync(rootPath, TestContext.Current.CancellationToken));
+            () => _store.OpenAsync(rootPath, TestContext.Current.CancellationToken));
 
         Assert.Equal(ProjectErrorCode.InvalidProject, exception.Code);
     }
@@ -445,45 +389,45 @@ public sealed class FileSystemProjectStoreTests : IDisposable
     public async Task OpenAsync_ShouldPreserveDatabase_WhenStoredValuesCannotBeMaterialized(string sql)
     {
         string rootPath = _temporaryWorkspace.GetPath("Malformed storage values");
-        await new FileSystemProjectStore().CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken);
-        await ExecuteSqlAsync(rootPath, sql);
-        FileSnapshot[] before = CaptureFiles(rootPath);
+        ProjectWorkspace workspace = await _store.CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken);
+        await ExecuteSqlAsync(workspace.DatabasePath, sql);
+        FileSnapshot[] before = CaptureFiles(workspace.DataRoot);
 
         ProjectOperationException exception = await Assert.ThrowsAsync<ProjectOperationException>(
-            () => new FileSystemProjectStore().OpenAsync(rootPath, TestContext.Current.CancellationToken));
+            () => _store.OpenAsync(rootPath, TestContext.Current.CancellationToken));
 
         Assert.Equal(ProjectErrorCode.InvalidProject, exception.Code);
-        Assert.Equal(before, CaptureFiles(rootPath));
+        Assert.Equal(before, CaptureFiles(workspace.DataRoot));
     }
 
     [Fact]
     public async Task OpenAsync_ShouldRejectUnrecognizedSchema_WhenInitialMigrationIsNotRecorded()
     {
         string rootPath = _temporaryWorkspace.GetPath("Missing migration history");
-        await new FileSystemProjectStore().CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken);
-        await ExecuteSqlAsync(rootPath, "DELETE FROM __EFMigrationsHistory;");
-        FileSnapshot[] before = CaptureFiles(rootPath);
+        ProjectWorkspace workspace = await _store.CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken);
+        await ExecuteSqlAsync(workspace.DatabasePath, "DELETE FROM __EFMigrationsHistory;");
+        FileSnapshot[] before = CaptureFiles(workspace.DataRoot);
 
         ProjectOperationException exception = await Assert.ThrowsAsync<ProjectOperationException>(
-            () => new FileSystemProjectStore().OpenAsync(rootPath, TestContext.Current.CancellationToken));
+            () => _store.OpenAsync(rootPath, TestContext.Current.CancellationToken));
 
         Assert.Equal(ProjectErrorCode.InvalidProject, exception.Code);
-        Assert.Equal(before, CaptureFiles(rootPath));
+        Assert.Equal(before, CaptureFiles(workspace.DataRoot));
     }
 
     [Fact]
     public async Task OpenAsync_ShouldRejectUnrecognizedDatabase_WhenProjectTableIsMissing()
     {
         string rootPath = _temporaryWorkspace.GetPath("Unrecognized database");
-        await new FileSystemProjectStore().CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken);
-        await ExecuteSqlAsync(rootPath, "ALTER TABLE Projects RENAME TO UnrelatedRecords;");
-        FileSnapshot[] before = CaptureFiles(rootPath);
+        ProjectWorkspace workspace = await _store.CreateAsync(CreateProject(), rootPath, TestContext.Current.CancellationToken);
+        await ExecuteSqlAsync(workspace.DatabasePath, "ALTER TABLE Projects RENAME TO UnrelatedRecords;");
+        FileSnapshot[] before = CaptureFiles(workspace.DataRoot);
 
         ProjectOperationException exception = await Assert.ThrowsAsync<ProjectOperationException>(
-            () => new FileSystemProjectStore().OpenAsync(rootPath, TestContext.Current.CancellationToken));
+            () => _store.OpenAsync(rootPath, TestContext.Current.CancellationToken));
 
         Assert.Equal(ProjectErrorCode.InvalidProject, exception.Code);
-        Assert.Equal(before, CaptureFiles(rootPath));
+        Assert.Equal(before, CaptureFiles(workspace.DataRoot));
     }
 
     [Fact]
@@ -498,9 +442,9 @@ public sealed class FileSystemProjectStoreTests : IDisposable
         CreationAttempt successfulAttempt = Assert.Single(attempts, attempt => attempt.Workspace is not null);
         CreationAttempt rejectedAttempt = Assert.Single(attempts, attempt => attempt.Error is not null);
         ProjectOperationException error = Assert.IsType<ProjectOperationException>(rejectedAttempt.Error);
-        Assert.Contains(error.Code, new[] { ProjectErrorCode.AlreadyExists, ProjectErrorCode.DirectoryNotEmpty });
+        Assert.Equal(ProjectErrorCode.AlreadyExists, error.Code);
         ProjectWorkspace createdWorkspace = Assert.IsType<ProjectWorkspace>(successfulAttempt.Workspace);
-        ProjectWorkspace reopened = await new FileSystemProjectStore().OpenAsync(rootPath, TestContext.Current.CancellationToken);
+        ProjectWorkspace reopened = await _store.OpenAsync(rootPath, TestContext.Current.CancellationToken);
         Assert.Equal(createdWorkspace.Project.Id, reopened.Project.Id);
         Assert.Equal(createdWorkspace.Project.Name, reopened.Project.Name);
     }
@@ -515,25 +459,26 @@ public sealed class FileSystemProjectStoreTests : IDisposable
 
     private static FileSnapshot[] CaptureFiles(string rootPath)
     {
+        if (!Directory.Exists(rootPath)) return [];
         return [.. Directory.EnumerateFiles(rootPath, "*", SearchOption.AllDirectories)
             .Select(path => new FileSnapshot(Path.GetRelativePath(rootPath, path), Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)))))
             .OrderBy(snapshot => snapshot.RelativePath, StringComparer.Ordinal)];
     }
 
-    private static async Task ChangeJsonPropertyAsync(string rootPath, string fileName, string propertyName, JsonNode? value)
+    private static async Task ChangeJsonPropertyAsync(string contextRoot, string fileName, string propertyName, JsonNode? value)
     {
-        string path = Path.Combine(rootPath, "context", fileName);
+        string path = Path.Combine(contextRoot, fileName);
         string json = await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken);
         JsonObject document = Assert.IsType<JsonObject>(JsonNode.Parse(json));
         document[propertyName] = value;
         await File.WriteAllTextAsync(path, document.ToJsonString(), TestContext.Current.CancellationToken);
     }
 
-    private static async Task ExecuteSqlAsync(string rootPath, string sql)
+    private static async Task ExecuteSqlAsync(string databasePath, string sql)
     {
         var connectionString = new SqliteConnectionStringBuilder
         {
-            DataSource = Path.Combine(rootPath, "project.db"),
+            DataSource = databasePath,
             Mode = SqliteOpenMode.ReadWrite,
             Pooling = false,
         };
@@ -544,11 +489,11 @@ public sealed class FileSystemProjectStoreTests : IDisposable
         await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
     }
 
-    private static async Task<CreationAttempt> TryCreateAsync(TranslationProject project, string rootPath)
+    private async Task<CreationAttempt> TryCreateAsync(TranslationProject project, string rootPath)
     {
         try
         {
-            ProjectWorkspace workspace = await new FileSystemProjectStore().CreateAsync(project, rootPath, TestContext.Current.CancellationToken);
+            ProjectWorkspace workspace = await _store.CreateAsync(project, rootPath, TestContext.Current.CancellationToken);
             return new CreationAttempt(workspace, null);
         }
         catch (ProjectOperationException exception)

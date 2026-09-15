@@ -111,25 +111,38 @@ The Project Explorer presents an IDE-like hybrid tree reflecting project resourc
 alongside safe user content. Lazy expansion keeps opening times instantaneous even for
 large projects with hundreds of chapters or thousands of pages. Persistent Chapter and
 Page records are restored from SQLite, while internal application caches (`cache/`) remain
-hidden by default. Selecting a Page restores its inspector metadata, visual editor canvas,
-and text regions. Only the selected image is decoded for preview. The native WPF preview
-uses an eight-million-pixel decode budget for long pages without modifying or locking the
-imported image.
+hidden by default. Long names are automatically truncated with an ellipsis instead of
+consuming vertical space with horizontal scrollbars; tooltips reveal the full file name
+on hover, and the explorer panel can be freely resized using the splitter.
+
+Supported image files (`.png`, `.jpg`, `.jpeg`, `.webp`) that exist physically on disk
+outside canonical pages—such as reference images, cover art, or loose images placed
+directly under `chapters/`—appear as generic image files. Selecting a generic image file
+opens a read-only preview in the Visual Editor without modifying the database or creating
+spurious `Page` entities. The Inspector presents real filesystem and pixel metadata for
+the unimported image while keeping text region tools safely disabled.
+
+Unimported subdirectories directly under `chapters/` containing supported images are
+conservatively recognized as chapter candidates. Users can adopt them via **Import as Chapter...**
+from the context menu or action panel, which pre-fills the canonical import dialog while
+strictly reusing the standard atomic import pipeline and preserving pre-existing files intact.
 
 ## Visual editor
 
-Selecting a page opens the RAW visual editor. The editor supports fit-to-view,
-30%-200% interactive zoom, cursor-centered zoom with **Ctrl + Mouse Wheel**, vertical
+Selecting a canonical page opens the RAW visual editor in editing mode. The editor supports
+fit-to-view, 30%-200% interactive zoom, cursor-centered zoom with **Ctrl + Mouse Wheel**, vertical
 wheel pan, horizontal pan with **Shift + Mouse Wheel**, middle-button drag, and
 **Space + Left Mouse Button** drag. Fit-to-view may use a scale below 30% so a long
-webtoon page can remain fully visible.
+webtoon page can remain fully visible. Pan and zoom capabilities are also available when
+previewing generic unimported images.
 
-Use **Select**, **Rectangle**, or **Polygon** to work with manual text regions.
-Rectangle regions are drawn by dragging. Polygon points are added with clicks and
-finished with a double-click or Enter; Escape cancels transient drawing. Delete
-removes the selected region. Region role and container type can be edited in the
-Inspector. All geometry is stored in immutable RAW-image pixel coordinates, while
-zoom, pan, and window coordinates remain temporary UI state.
+For canonical pages, use **Select**, **Rectangle**, or **Polygon** to work with manual text
+regions. Rectangle regions are drawn by dragging. Polygon points are added with clicks and
+finished with a double-click or Enter; Escape cancels transient drawing. Delete removes the
+selected region. Region role and container type can be edited in the Inspector. All geometry
+is stored in immutable RAW-image pixel coordinates, while zoom, pan, and window coordinates
+remain temporary UI state. When viewing generic images, region editing tools are disabled
+to prevent accidental modifications.
 
 ```text
 <project root>/

@@ -7,4 +7,8 @@ public interface IPagePreviewLoader
         int rawPixelWidth,
         int rawPixelHeight,
         CancellationToken cancellationToken);
+
+    Task<PagePreview> LoadImageAsync(
+        string filePath,
+        CancellationToken cancellationToken);
 }

@@ -1,9 +1,11 @@
 using System.Security.Cryptography;
 using Inklume.Application.Chapters;
 using Inklume.Application.Projects;
+using Inklume.Application.Workspaces;
 using Inklume.Domain.Projects;
 using Inklume.Infrastructure.Chapters;
 using Inklume.Infrastructure.Projects;
+using Inklume.Infrastructure.Workspaces;
 using Microsoft.Data.Sqlite;
 using Xunit;
 
@@ -21,6 +23,14 @@ public sealed class ChapterImportTests : IDisposable
         0x01, 0x11, 0x00, 0x02, 0x11, 0x00, 0x03, 0x11, 0x00, 0xFF, 0xD9
     ];
     private readonly TemporaryWorkspace _temporaryWorkspace = new();
+    private readonly IWorkspaceDataLocation _dataLocation;
+    private readonly IProjectStore _projectStore;
+
+    public ChapterImportTests()
+    {
+        _dataLocation = new DefaultWorkspaceDataLocation(Path.Combine(_temporaryWorkspace.RootPath, "AppData"));
+        _projectStore = new FileSystemProjectStore(_dataLocation);
+    }
 
     [Fact]
     public async Task ImportAsync_ShouldCopySupportedImagesInNaturalOrderAndPreserveSources()
@@ -53,7 +63,7 @@ public sealed class ChapterImportTests : IDisposable
         });
         Assert.All(result.Pages, page => Assert.Equal(
             Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(page.FilePath))), page.Page.ContentHash));
-        Assert.Equal(Path.Combine(workspace.RootPath, "chapters", "001", "001_raw"),
+        Assert.Equal(Path.Combine(workspace.SourceRoot, "chapters", "001", "001_raw"),
             Path.GetDirectoryName(result.Pages[0].FilePath));
     }
 
@@ -70,8 +80,8 @@ public sealed class ChapterImportTests : IDisposable
             workspace, new ChapterNumber(10.5m), null, sourcePath,
             cancellationToken: TestContext.Current.CancellationToken);
 
-        ProjectWorkspace reopened = await new FileSystemProjectStore().OpenAsync(
-            workspace.RootPath, TestContext.Current.CancellationToken);
+        ProjectWorkspace reopened = await _projectStore.OpenAsync(
+            workspace.SourceRoot, TestContext.Current.CancellationToken);
         IReadOnlyList<Chapter> chapters = await service.GetChaptersAsync(reopened, TestContext.Current.CancellationToken);
         IReadOnlyList<PageWorkspace> pages = await service.GetPagesAsync(
             reopened, chapters.Single().Id, TestContext.Current.CancellationToken);
@@ -80,7 +90,7 @@ public sealed class ChapterImportTests : IDisposable
         Assert.Equal(["1.png", "2.png", "10.png"], pages.Select(page => page.Page.OriginalFileName));
         Assert.Equal([1, 2, 3], pages.Select(page => page.Page.Number));
         Assert.All(pages, page => Assert.False(Path.IsPathFullyQualified(page.Page.RelativePath)));
-        Assert.All(pages, page => Assert.StartsWith(reopened.RootPath, page.FilePath, StringComparison.OrdinalIgnoreCase));
+        Assert.All(pages, page => Assert.StartsWith(reopened.SourceRoot, page.FilePath, StringComparison.OrdinalIgnoreCase));
         Assert.True(reopened.Project.UpdatedAt >= workspace.Project.UpdatedAt);
     }
 
@@ -93,14 +103,14 @@ public sealed class ChapterImportTests : IDisposable
         ChapterService service = CreateChapterService();
         await ImportLocalAsync(workspace, new ChapterNumber(12), null, sourcePath,
             cancellationToken: TestContext.Current.CancellationToken);
-        FileState[] before = CaptureFiles(workspace.RootPath);
+        FileState[] before = CaptureFiles(workspace.SourceRoot);
 
         ProjectOperationException exception = await Assert.ThrowsAsync<ProjectOperationException>(() =>
             ImportLocalAsync(workspace, new ChapterNumber(12.0m), "Duplicate", sourcePath,
                 cancellationToken: TestContext.Current.CancellationToken));
 
         Assert.Equal(ProjectErrorCode.DuplicateChapter, exception.Code);
-        Assert.Equal(before, CaptureFiles(workspace.RootPath));
+        Assert.Equal(before, CaptureFiles(workspace.SourceRoot));
         Assert.Single(await service.GetChaptersAsync(workspace, TestContext.Current.CancellationToken));
     }
 
@@ -126,7 +136,7 @@ public sealed class ChapterImportTests : IDisposable
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
             ImportLocalAsync(workspace, new ChapterNumber(2), null, sourcePath, progress, cancellation.Token));
 
-        Assert.Empty(Directory.EnumerateFileSystemEntries(Path.Combine(workspace.RootPath, "chapters")));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(Path.Combine(workspace.SourceRoot, "chapters")));
         Assert.Empty(await CreateChapterService().GetChaptersAsync(workspace, TestContext.Current.CancellationToken));
         Assert.Equal(4, Directory.EnumerateFiles(sourcePath).Count());
     }
@@ -138,7 +148,7 @@ public sealed class ChapterImportTests : IDisposable
         string sourcePath = CreateSourceFolder("Persistence failure source");
         WriteImage(sourcePath, "1.png", PngBytes);
         FileState[] sourcesBefore = CaptureFiles(sourcePath);
-        string databasePath = Path.Combine(workspace.RootPath, "project.db");
+        string databasePath = workspace.DatabasePath;
         await ExecuteSqlAsync(databasePath,
             "CREATE TRIGGER FailChapterInsert BEFORE INSERT ON Chapters " +
             "BEGIN SELECT RAISE(ABORT, 'forced chapter persistence failure'); END;");
@@ -148,8 +158,12 @@ public sealed class ChapterImportTests : IDisposable
                 cancellationToken: TestContext.Current.CancellationToken));
 
         Assert.Equal(ProjectErrorCode.ImportFailure, exception.Code);
-        Assert.False(Directory.Exists(Path.Combine(workspace.RootPath, "chapters", "002.5")));
-        Assert.Empty(Directory.EnumerateFileSystemEntries(Path.Combine(workspace.RootPath, "chapters")));
+        Assert.False(Directory.Exists(Path.Combine(workspace.SourceRoot, "chapters", "002.5")));
+        string chaptersDir = Path.Combine(workspace.SourceRoot, "chapters");
+        if (Directory.Exists(chaptersDir))
+        {
+            Assert.Empty(Directory.EnumerateFileSystemEntries(chaptersDir));
+        }
         Assert.Empty(await CreateChapterService().GetChaptersAsync(workspace, TestContext.Current.CancellationToken));
         Assert.Equal(sourcesBefore, CaptureFiles(sourcePath));
     }
@@ -172,7 +186,11 @@ public sealed class ChapterImportTests : IDisposable
 
         Assert.Equal(ProjectErrorCode.NoSupportedImages, exception.Code);
         Assert.Empty(await CreateChapterService().GetChaptersAsync(workspace, TestContext.Current.CancellationToken));
-        Assert.Empty(Directory.EnumerateFileSystemEntries(Path.Combine(workspace.RootPath, "chapters")));
+        string chaptersDir = Path.Combine(workspace.SourceRoot, "chapters");
+        if (Directory.Exists(chaptersDir))
+        {
+            Assert.Empty(Directory.EnumerateFileSystemEntries(chaptersDir));
+        }
     }
 
     [Fact]
@@ -189,7 +207,11 @@ public sealed class ChapterImportTests : IDisposable
 
         Assert.Equal(ProjectErrorCode.InvalidImage, exception.Code);
         Assert.Empty(await CreateChapterService().GetChaptersAsync(workspace, TestContext.Current.CancellationToken));
-        Assert.Empty(Directory.EnumerateFileSystemEntries(Path.Combine(workspace.RootPath, "chapters")));
+        string chaptersDir = Path.Combine(workspace.SourceRoot, "chapters");
+        if (Directory.Exists(chaptersDir))
+        {
+            Assert.Empty(Directory.EnumerateFileSystemEntries(chaptersDir));
+        }
     }
 
     [Fact]
@@ -211,14 +233,14 @@ public sealed class ChapterImportTests : IDisposable
     public async Task OpenAsync_ShouldUpgradeProjectCreatedWithInitialMigration()
     {
         ProjectWorkspace workspace = await CreateWorkspaceAsync("Legacy schema project");
-        string databasePath = Path.Combine(workspace.RootPath, "project.db");
+        string databasePath = workspace.DatabasePath;
         await ExecuteSqlAsync(databasePath,
             "DROP TABLE TextRegionPoints; DROP TABLE TextRegions; DROP TABLE Pages; DROP TABLE Chapters; " +
             "DELETE FROM __EFMigrationsHistory WHERE MigrationId LIKE '%AddVisualEditorFoundation' " +
             "OR MigrationId LIKE '%AddChaptersAndPages';");
 
-        ProjectWorkspace reopened = await new FileSystemProjectStore().OpenAsync(
-            workspace.RootPath, TestContext.Current.CancellationToken);
+        ProjectWorkspace reopened = await _projectStore.OpenAsync(
+            workspace.SourceRoot, TestContext.Current.CancellationToken);
 
         Assert.Equal(workspace.Project.Id, reopened.Project.Id);
         Assert.True(await TableExistsAsync(databasePath, "Chapters"));
@@ -234,7 +256,7 @@ public sealed class ChapterImportTests : IDisposable
         ChapterImportResult result = await ImportLocalAsync(
             workspace, new ChapterNumber(6), null, sourcePath,
             cancellationToken: TestContext.Current.CancellationToken);
-        string databasePath = Path.Combine(workspace.RootPath, "project.db");
+        string databasePath = workspace.DatabasePath;
         string timestamp = DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture);
 
         await Assert.ThrowsAsync<SqliteException>(() => ExecuteSqlAsync(databasePath,
@@ -265,6 +287,35 @@ public sealed class ChapterImportTests : IDisposable
         Assert.Equal(PngBytes, await File.ReadAllBytesAsync(page.FilePath, TestContext.Current.CancellationToken));
     }
 
+    [Fact]
+    public async Task ImportAsync_ShouldAdoptCandidateFolderUnderChapters_PreservingExistingFilesAndStagingRawSubfolder()
+    {
+        ProjectWorkspace workspace = await CreateWorkspaceAsync("Project Candidate Test");
+        string chaptersDir = Path.Combine(workspace.SourceRoot, "chapters");
+        string candidateFolder = Path.Combine(chaptersDir, "001");
+        Directory.CreateDirectory(candidateFolder);
+
+        WriteImage(candidateFolder, "01.png", PngBytes);
+        WriteImage(candidateFolder, "02.jpg", MinimalJpegBytes);
+        string extraFile = Path.Combine(candidateFolder, "user_notes.txt");
+        await File.WriteAllTextAsync(extraFile, "keep this file intact", TestContext.Current.CancellationToken);
+
+        ChapterImportResult result = await ImportLocalAsync(
+            workspace, new ChapterNumber(1), "Chapter 1", candidateFolder,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, result.Pages.Count);
+        string expectedRawFolder = Path.Combine(candidateFolder, "001_raw");
+        Assert.True(Directory.Exists(expectedRawFolder));
+        Assert.True(File.Exists(Path.Combine(expectedRawFolder, "001.png")));
+        Assert.True(File.Exists(Path.Combine(expectedRawFolder, "002.jpg")));
+        // Original files and extra user files in candidateFolder are preserved
+        Assert.True(File.Exists(Path.Combine(candidateFolder, "01.png")));
+        Assert.True(File.Exists(Path.Combine(candidateFolder, "02.jpg")));
+        Assert.True(File.Exists(extraFile));
+        Assert.Equal("keep this file intact", await File.ReadAllTextAsync(extraFile, TestContext.Current.CancellationToken));
+    }
+
     public void Dispose() => _temporaryWorkspace.Dispose();
 
     private async Task<ProjectWorkspace> CreateWorkspaceAsync(string name)
@@ -272,7 +323,7 @@ public sealed class ChapterImportTests : IDisposable
         string rootPath = _temporaryWorkspace.GetPath(name);
         DateTimeOffset timestamp = DateTimeOffset.UtcNow;
         var project = new TranslationProject(Guid.NewGuid(), name, "Series 日本語", timestamp, timestamp);
-        return await new FileSystemProjectStore().CreateAsync(project, rootPath, TestContext.Current.CancellationToken);
+        return await _projectStore.CreateAsync(project, rootPath, TestContext.Current.CancellationToken);
     }
 
     private string CreateSourceFolder(string name)
@@ -297,7 +348,7 @@ public sealed class ChapterImportTests : IDisposable
             ? TestContext.Current.CancellationToken
             : cancellationToken;
         ChapterSource source = await new LocalFolderChapterSourceProvider().LoadAsync(
-            sourcePath, workspace.RootPath, effectiveToken);
+            sourcePath, workspace.SourceRoot, effectiveToken);
         return await CreateChapterService().ImportAsync(
             workspace, new ImportChapterRequest(number, title, source), progress, effectiveToken);
     }

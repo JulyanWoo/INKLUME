@@ -6,8 +6,8 @@ public interface IProjectStore
 {
     Task<ProjectWorkspace> CreateAsync(
         TranslationProject project,
-        string rootPath,
+        string sourceRoot,
         CancellationToken cancellationToken);
 
-    Task<ProjectWorkspace> OpenAsync(string rootPath, CancellationToken cancellationToken);
+    Task<ProjectWorkspace> OpenAsync(string sourceRoot, CancellationToken cancellationToken);
 }

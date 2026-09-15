@@ -4,7 +4,8 @@ namespace Inklume.Infrastructure.Projects;
 
 internal static class ProjectPaths
 {
-    internal const string DatabaseFileName = "project.db";
+    internal const string DatabaseFileName = "workspace.db";
+    internal const string LegacyDatabaseFileName = "project.db";
     internal const string CreationLockFileName = ".inklume-create.lock";
 
     internal static string Normalize(string path)

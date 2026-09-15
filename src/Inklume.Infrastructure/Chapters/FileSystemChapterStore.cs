@@ -25,18 +25,20 @@ public sealed class FileSystemChapterStore : IChapterStore
         cancellationToken.ThrowIfCancellationRequested();
         string? stagingPath = null;
         string? finalChapterPath = null;
+        string? createdRawPath = null;
         bool finalPathOwned = false;
 
         try
         {
             ProjectWorkspace verifiedWorkspace = await VerifyWorkspaceAsync(workspace, cancellationToken);
             string chapterFolderName = chapter.Number.ToFolderName();
-            string chaptersPath = Path.Combine(verifiedWorkspace.RootPath, "chapters");
+            string chaptersPath = Path.Combine(verifiedWorkspace.SourceRoot, "chapters");
             finalChapterPath = Path.Combine(chaptersPath, chapterFolderName);
-            await RejectDuplicateAsync(verifiedWorkspace, chapter, finalChapterPath, cancellationToken);
+            string rawFolderName = $"{chapterFolderName}_raw";
+            bool chapterFolderPreExisted = await CheckDuplicateAndPreExistingAsync(
+                verifiedWorkspace, chapter, finalChapterPath, rawFolderName, cancellationToken);
 
             stagingPath = Path.Combine(chaptersPath, $".import-{chapterFolderName}-{Guid.NewGuid():N}");
-            string rawFolderName = $"{chapterFolderName}_raw";
             string stagingRawPath = Path.Combine(stagingPath, rawFolderName);
             Directory.CreateDirectory(stagingRawPath);
             IReadOnlyList<Page> pages = await CopyImagesAsync(
@@ -44,20 +46,39 @@ public sealed class FileSystemChapterStore : IChapterStore
                 chapter.Id, progress, cancellationToken);
 
             cancellationToken.ThrowIfCancellationRequested();
-            Directory.Move(stagingPath, finalChapterPath);
-            stagingPath = null;
-            finalPathOwned = true;
+
+            if (chapterFolderPreExisted)
+            {
+                string targetRawPath = Path.Combine(finalChapterPath, rawFolderName);
+                Directory.Move(stagingRawPath, targetRawPath);
+                createdRawPath = targetRawPath;
+                CleanupOwnedDirectory(stagingPath);
+                stagingPath = null;
+            }
+            else
+            {
+                Directory.Move(stagingPath, finalChapterPath);
+                stagingPath = null;
+                finalPathOwned = true;
+            }
+
             ProjectWorkspace updatedWorkspace = await PersistAsync(verifiedWorkspace, chapter, pages, cancellationToken);
             finalPathOwned = false;
+            createdRawPath = null;
 
             IReadOnlyList<PageWorkspace> pageWorkspaces = pages
-                .Select(page => new PageWorkspace(page, ResolvePagePath(updatedWorkspace.RootPath, page.RelativePath)))
+                .Select(page => new PageWorkspace(page, ResolvePagePath(updatedWorkspace.SourceRoot, page.RelativePath)))
                 .ToArray();
             return new ChapterImportResult(updatedWorkspace, chapter, pageWorkspaces, source.IgnoredFiles);
         }
         catch (OperationCanceledException)
         {
             CleanupOwnedDirectory(stagingPath);
+            if (createdRawPath is not null)
+            {
+                CleanupOwnedDirectory(createdRawPath);
+            }
+
             if (finalPathOwned)
             {
                 CleanupOwnedDirectory(finalChapterPath);
@@ -68,6 +89,11 @@ public sealed class FileSystemChapterStore : IChapterStore
         catch (ProjectOperationException)
         {
             CleanupOwnedDirectory(stagingPath);
+            if (createdRawPath is not null)
+            {
+                CleanupOwnedDirectory(createdRawPath);
+            }
+
             if (finalPathOwned)
             {
                 CleanupOwnedDirectory(finalChapterPath);
@@ -78,6 +104,11 @@ public sealed class FileSystemChapterStore : IChapterStore
         catch (UnauthorizedAccessException exception)
         {
             CleanupOwnedDirectory(stagingPath);
+            if (createdRawPath is not null)
+            {
+                CleanupOwnedDirectory(createdRawPath);
+            }
+
             if (finalPathOwned)
             {
                 CleanupOwnedDirectory(finalChapterPath);
@@ -90,6 +121,11 @@ public sealed class FileSystemChapterStore : IChapterStore
             or SqliteException or DbUpdateException)
         {
             CleanupOwnedDirectory(stagingPath);
+            if (createdRawPath is not null)
+            {
+                CleanupOwnedDirectory(createdRawPath);
+            }
+
             if (finalPathOwned)
             {
                 CleanupOwnedDirectory(finalChapterPath);
@@ -100,12 +136,147 @@ public sealed class FileSystemChapterStore : IChapterStore
         }
     }
 
+    public async Task<ChapterIndexResult> IndexChapterInPlaceAsync(
+        ProjectWorkspace workspace,
+        string chapterDirectoryPath,
+        ChapterNumber chapterNumber,
+        string? title,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentException.ThrowIfNullOrWhiteSpace(chapterDirectoryPath);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        string normalizedChapterDir = Path.GetFullPath(chapterDirectoryPath);
+        if (!Directory.Exists(normalizedChapterDir))
+        {
+            throw new ProjectOperationException(ProjectErrorCode.NotFound,
+                $"The chapter directory does not exist: {chapterDirectoryPath}");
+        }
+
+        if (!IsSameOrDescendant(normalizedChapterDir, workspace.SourceRoot))
+        {
+            throw new ProjectOperationException(ProjectErrorCode.InvalidPath,
+                "The chapter directory must be within the project source folder.");
+        }
+
+        string databasePath = workspace.DatabasePath;
+        await using ProjectDbContext context = SqliteProjectPersistence.CreateContext(databasePath, readOnly: false);
+        await SqliteProjectPersistence.OpenConnectionAsync(context, cancellationToken);
+
+        ChapterMetadata? existing = await context.Chapters.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.ProjectId == workspace.Project.Id && c.Number == chapterNumber.Value, cancellationToken);
+
+        if (existing is not null)
+        {
+            Chapter existingChapter = ToDomainChapter(existing);
+            IReadOnlyList<PageWorkspace> existingPages = await GetPagesAsync(workspace, existingChapter.Id, cancellationToken);
+            return new ChapterIndexResult(workspace, existingChapter, existingPages);
+        }
+
+        List<string> imageFiles = [.. Directory.EnumerateFiles(normalizedChapterDir)
+            .Where(SupportedImageFormats.IsSupported)
+            .OrderBy(f => Path.GetFileName(f) ?? string.Empty, NaturalFileNameComparer.Instance)];
+
+        if (imageFiles.Count == 0)
+        {
+            throw new ProjectOperationException(ProjectErrorCode.NoSupportedImages,
+                $"The chapter folder '{Path.GetFileName(normalizedChapterDir)}' contains no supported images.");
+        }
+
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        Guid chapterId = Guid.NewGuid();
+        var chapter = new Chapter(chapterId, workspace.Project.Id, chapterNumber, title, now, now);
+
+        var pages = new List<Page>(imageFiles.Count);
+        for (int i = 0; i < imageFiles.Count; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string imagePath = imageFiles[i];
+            string fileName = Path.GetFileName(imagePath);
+            string extension = Path.GetExtension(imagePath);
+            int pageNumber = i + 1;
+
+            string relativePath = Path.GetRelativePath(workspace.SourceRoot, imagePath);
+
+            string hash;
+            await using (var hashStream = new FileStream(imagePath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true))
+            {
+                using var sha256 = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+                byte[] hashBuffer = ArrayPool<byte>.Shared.Rent(81920);
+                try
+                {
+                    int bytesRead;
+                    while ((bytesRead = await hashStream.ReadAsync(hashBuffer.AsMemory(0, hashBuffer.Length), cancellationToken)) > 0)
+                    {
+                        sha256.AppendData(hashBuffer, 0, bytesRead);
+                    }
+
+                    hash = Convert.ToHexString(sha256.GetHashAndReset());
+                }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(hashBuffer);
+                }
+            }
+
+            await using var validationStream = new FileStream(imagePath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, useAsync: true);
+            ImageDimensions dimensions = await ImageFileValidator.ValidateAsync(validationStream, fileName, extension, cancellationToken);
+
+            pages.Add(new Page(
+                Guid.NewGuid(),
+                chapterId,
+                pageNumber,
+                fileName,
+                relativePath,
+                hash,
+                dimensions.PixelWidth,
+                dimensions.PixelHeight));
+        }
+
+        context.Chapters.Add(new ChapterMetadata
+        {
+            Id = chapter.Id,
+            ProjectId = chapter.ProjectId,
+            Number = chapter.Number.Value,
+            Title = chapter.Title,
+            CreatedAt = chapter.CreatedAt,
+            UpdatedAt = chapter.UpdatedAt
+        });
+
+        context.Pages.AddRange(pages.Select(p => new PageMetadata
+        {
+            Id = p.Id,
+            ChapterId = p.ChapterId,
+            Number = p.Number,
+            OriginalFileName = p.OriginalFileName,
+            RelativePath = p.RelativePath,
+            ContentHash = p.ContentHash,
+            PixelWidth = p.PixelWidth,
+            PixelHeight = p.PixelHeight
+        }));
+
+        ProjectMetadata projectMetadata = await context.Projects.SingleAsync(
+            metadata => metadata.Id == workspace.Project.Id, cancellationToken);
+        projectMetadata.UpdatedAt = now;
+
+        await context.SaveChangesAsync(cancellationToken);
+
+        var updatedProject = new TranslationProject(
+            workspace.Project.Id, workspace.Project.Name, workspace.Project.SeriesName,
+            workspace.Project.CreatedAt, now);
+        var updatedWorkspace = new ProjectWorkspace(updatedProject, workspace.SourceRoot, workspace.DataRoot);
+
+        IReadOnlyList<PageWorkspace> pageWorkspaces = [.. pages.Select(p => new PageWorkspace(p, ResolvePagePath(workspace.SourceRoot, p.RelativePath)))];
+        return new ChapterIndexResult(updatedWorkspace, chapter, pageWorkspaces);
+    }
+
     public async Task<IReadOnlyList<Chapter>> GetChaptersAsync(
         ProjectWorkspace workspace,
         CancellationToken cancellationToken)
     {
         ProjectWorkspace verifiedWorkspace = await VerifyWorkspaceAsync(workspace, cancellationToken);
-        string databasePath = Path.Combine(verifiedWorkspace.RootPath, ProjectPaths.DatabaseFileName);
+        string databasePath = verifiedWorkspace.DatabasePath;
         await using ProjectDbContext context = SqliteProjectPersistence.CreateContext(databasePath, readOnly: true);
         await SqliteProjectPersistence.OpenConnectionAsync(context, cancellationToken);
         List<ChapterMetadata> records = await context.Chapters.AsNoTracking()
@@ -121,7 +292,7 @@ public sealed class FileSystemChapterStore : IChapterStore
         CancellationToken cancellationToken)
     {
         ProjectWorkspace verifiedWorkspace = await VerifyWorkspaceAsync(workspace, cancellationToken);
-        string databasePath = Path.Combine(verifiedWorkspace.RootPath, ProjectPaths.DatabaseFileName);
+        string databasePath = verifiedWorkspace.DatabasePath;
         await using ProjectDbContext context = SqliteProjectPersistence.CreateContext(databasePath, readOnly: true);
         await SqliteProjectPersistence.OpenConnectionAsync(context, cancellationToken);
         bool chapterBelongsToProject = await context.Chapters.AsNoTracking()
@@ -139,7 +310,7 @@ public sealed class FileSystemChapterStore : IChapterStore
         return records.Select(metadata =>
         {
             Page page = ToDomainPage(metadata);
-            return new PageWorkspace(page, ResolvePagePath(verifiedWorkspace.RootPath, page.RelativePath));
+            return new PageWorkspace(page, ResolvePagePath(verifiedWorkspace.SourceRoot, page.RelativePath));
         }).ToArray();
     }
 
@@ -149,7 +320,7 @@ public sealed class FileSystemChapterStore : IChapterStore
         CancellationToken cancellationToken)
     {
         ProjectWorkspace verifiedWorkspace = await VerifyWorkspaceAsync(workspace, cancellationToken);
-        string databasePath = Path.Combine(verifiedWorkspace.RootPath, ProjectPaths.DatabaseFileName);
+        string databasePath = verifiedWorkspace.DatabasePath;
         await using ProjectDbContext context = SqliteProjectPersistence.CreateContext(databasePath, readOnly: false);
         await SqliteProjectPersistence.OpenConnectionAsync(context, cancellationToken);
         PageMetadata? metadata = await context.Pages
@@ -166,7 +337,7 @@ public sealed class FileSystemChapterStore : IChapterStore
         }
 
         Page page = ToDomainPage(metadata);
-        string filePath = ResolvePagePath(verifiedWorkspace.RootPath, page.RelativePath);
+        string filePath = ResolvePagePath(verifiedWorkspace.SourceRoot, page.RelativePath);
         if (!page.HasDimensions)
         {
             string extension = Path.GetExtension(filePath);
@@ -187,14 +358,21 @@ public sealed class FileSystemChapterStore : IChapterStore
     private static async Task<ProjectWorkspace> VerifyWorkspaceAsync(
         ProjectWorkspace workspace, CancellationToken cancellationToken)
     {
-        ProjectWorkspace verified = await new FileSystemProjectStore().OpenAsync(workspace.RootPath, cancellationToken);
-        if (verified.Project.Id != workspace.Project.Id)
+        string databasePath = workspace.DatabasePath;
+        if (!File.Exists(databasePath))
+        {
+            throw new ProjectOperationException(ProjectErrorCode.NotFound,
+                "The workspace database could not be found.");
+        }
+
+        TranslationProject project = await SqliteProjectPersistence.ReadAsync(databasePath, cancellationToken);
+        if (project.Id != workspace.Project.Id)
         {
             throw new ProjectOperationException(ProjectErrorCode.InvalidProject,
                 "The selected workspace no longer matches the open project.");
         }
 
-        return verified;
+        return workspace with { Project = project };
     }
 
     private static async Task<IReadOnlyList<Page>> CopyImagesAsync(
@@ -247,6 +425,7 @@ public sealed class FileSystemChapterStore : IChapterStore
                         sourceImage.OriginalFileName, relativePath, hash,
                         dimensions.PixelWidth, dimensions.PixelHeight));
                 }
+
                 progress?.Report(new ChapterImportProgress(pageNumber, sourceImages.Count, sourceImage.OriginalFileName));
             }
         }
@@ -275,16 +454,10 @@ public sealed class FileSystemChapterStore : IChapterStore
         return Convert.ToHexString(hash.GetHashAndReset());
     }
 
-    private static async Task RejectDuplicateAsync(
-        ProjectWorkspace workspace, Chapter chapter, string finalChapterPath, CancellationToken cancellationToken)
+    private static async Task<bool> CheckDuplicateAndPreExistingAsync(
+        ProjectWorkspace workspace, Chapter chapter, string finalChapterPath, string rawFolderName, CancellationToken cancellationToken)
     {
-        if (Directory.Exists(finalChapterPath) || File.Exists(finalChapterPath))
-        {
-            throw new ProjectOperationException(ProjectErrorCode.DuplicateChapter,
-                $"Chapter {chapter.Number} already has a folder in this project.");
-        }
-
-        string databasePath = Path.Combine(workspace.RootPath, ProjectPaths.DatabaseFileName);
+        string databasePath = workspace.DatabasePath;
         await using ProjectDbContext context = SqliteProjectPersistence.CreateContext(databasePath, readOnly: true);
         await SqliteProjectPersistence.OpenConnectionAsync(context, cancellationToken);
         if (await context.Chapters.AsNoTracking().AnyAsync(
@@ -294,12 +467,32 @@ public sealed class FileSystemChapterStore : IChapterStore
             throw new ProjectOperationException(ProjectErrorCode.DuplicateChapter,
                 $"Chapter {chapter.Number} is already imported.");
         }
+
+        if (File.Exists(finalChapterPath))
+        {
+            throw new ProjectOperationException(ProjectErrorCode.DuplicateChapter,
+                $"Chapter {chapter.Number} conflicts with an existing file in chapters.");
+        }
+
+        if (Directory.Exists(finalChapterPath))
+        {
+            string existingRawPath = Path.Combine(finalChapterPath, rawFolderName);
+            if (Directory.Exists(existingRawPath))
+            {
+                throw new ProjectOperationException(ProjectErrorCode.DuplicateChapter,
+                    $"Chapter {chapter.Number} already has a raw images folder in this project.");
+            }
+
+            return true;
+        }
+
+        return false;
     }
 
     private static async Task<ProjectWorkspace> PersistAsync(
         ProjectWorkspace workspace, Chapter chapter, IReadOnlyList<Page> pages, CancellationToken cancellationToken)
     {
-        string databasePath = Path.Combine(workspace.RootPath, ProjectPaths.DatabaseFileName);
+        string databasePath = workspace.DatabasePath;
         await using ProjectDbContext context = SqliteProjectPersistence.CreateContext(databasePath, readOnly: false);
         await SqliteProjectPersistence.OpenConnectionAsync(context, cancellationToken);
         ProjectMetadata projectMetadata = await context.Projects.SingleAsync(
@@ -333,7 +526,7 @@ public sealed class FileSystemChapterStore : IChapterStore
         var updatedProject = new TranslationProject(
             workspace.Project.Id, workspace.Project.Name, workspace.Project.SeriesName,
             workspace.Project.CreatedAt, updatedAt);
-        return new ProjectWorkspace(updatedProject, workspace.RootPath);
+        return new ProjectWorkspace(updatedProject, workspace.SourceRoot, workspace.DataRoot);
     }
 
     private static Chapter ToDomainChapter(ChapterMetadata metadata)
@@ -344,7 +537,7 @@ public sealed class FileSystemChapterStore : IChapterStore
         => new(metadata.Id, metadata.ChapterId, metadata.Number, metadata.OriginalFileName,
             metadata.RelativePath, metadata.ContentHash, metadata.PixelWidth, metadata.PixelHeight);
 
-    private static string ResolvePagePath(string projectRoot, string relativePath)
+    private static string ResolvePagePath(string sourceRoot, string relativePath)
     {
         if (Path.IsPathFullyQualified(relativePath))
         {
@@ -352,8 +545,8 @@ public sealed class FileSystemChapterStore : IChapterStore
                 "A page contains an absolute path instead of a project-relative path.");
         }
 
-        string resolved = Path.GetFullPath(Path.Combine(projectRoot, relativePath));
-        if (!IsSameOrDescendant(resolved, projectRoot) || string.Equals(resolved, projectRoot, StringComparison.OrdinalIgnoreCase))
+        string resolved = Path.GetFullPath(Path.Combine(sourceRoot, relativePath));
+        if (!IsSameOrDescendant(resolved, sourceRoot) || string.Equals(resolved, sourceRoot, StringComparison.OrdinalIgnoreCase))
         {
             throw new ProjectOperationException(ProjectErrorCode.InvalidProject,
                 "A page path points outside the open project.");

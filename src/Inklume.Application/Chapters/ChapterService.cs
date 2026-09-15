@@ -26,6 +26,19 @@ public sealed class ChapterService(IChapterStore store, TimeProvider timeProvide
         return store.ImportAsync(workspace, chapter, request.Source, progress, cancellationToken);
     }
 
+    public Task<ChapterIndexResult> IndexChapterInPlaceAsync(
+        ProjectWorkspace workspace,
+        string chapterDirectoryPath,
+        ChapterNumber chapterNumber,
+        string? title = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentException.ThrowIfNullOrWhiteSpace(chapterDirectoryPath);
+        cancellationToken.ThrowIfCancellationRequested();
+        return store.IndexChapterInPlaceAsync(workspace, chapterDirectoryPath, chapterNumber, title, cancellationToken);
+    }
+
     public Task<IReadOnlyList<Chapter>> GetChaptersAsync(
         ProjectWorkspace workspace,
         CancellationToken cancellationToken = default)

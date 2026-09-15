@@ -19,28 +19,50 @@ public sealed class LocalFolderChapterSourceProvider : ILocalChapterSourceProvid
             throw new ProjectOperationException(ProjectErrorCode.InvalidSource, "The chapter source folder does not exist.");
         }
 
-        if (IsSameOrDescendant(sourcePath, normalizedProjectRoot))
+        if (string.Equals(sourcePath, normalizedProjectRoot, StringComparison.OrdinalIgnoreCase))
         {
             throw new ProjectOperationException(ProjectErrorCode.InvalidSource,
-                "Choose a source folder outside the INKLUME project.");
+                "Select a chapter folder or images folder, not the project root.");
+        }
+
+        if (ProjectPaths.IsDescendantOf(normalizedProjectRoot, sourcePath))
+        {
+            string contextPath = Path.Combine(normalizedProjectRoot, "context");
+            string cachePath = Path.Combine(normalizedProjectRoot, "cache");
+
+            if (string.Equals(sourcePath, contextPath, StringComparison.OrdinalIgnoreCase)
+                || ProjectPaths.IsDescendantOf(contextPath, sourcePath)
+                || string.Equals(sourcePath, cachePath, StringComparison.OrdinalIgnoreCase)
+                || ProjectPaths.IsDescendantOf(cachePath, sourcePath))
+            {
+                throw new ProjectOperationException(ProjectErrorCode.InvalidSource,
+                    "Reserved internal project folders cannot be used as a chapter source.");
+            }
+
+            string folderName = Path.GetFileName(sourcePath);
+            if (folderName.EndsWith("_raw", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ProjectOperationException(ProjectErrorCode.InvalidSource,
+                    "An active chapter RAW folder cannot be imported as a new chapter.");
+            }
         }
 
         string[] files = [.. Directory.EnumerateFiles(sourcePath, "*", SearchOption.TopDirectoryOnly)];
         ChapterSourceImage[] images = [.. files
-            .Where(path => ImageFileValidator.SupportedExtensions.Contains(Path.GetExtension(path)))
+            .Where(path => SupportedImageFormats.IsSupported(path))
             .OrderBy(path => Path.GetFileName(path), NaturalFileNameComparer.Instance)
             .Select(path => new ChapterSourceImage(
                 Path.GetFileName(path),
                 Path.GetExtension(path).ToLowerInvariant(),
                 token => OpenReadAsync(path, token)))];
         string[] ignoredFiles = [.. files
-            .Where(path => !ImageFileValidator.SupportedExtensions.Contains(Path.GetExtension(path)))
+            .Where(path => !SupportedImageFormats.IsSupported(path))
             .Select(path => Path.GetFileName(path))
             .OrderBy(name => name, NaturalFileNameComparer.Instance)];
         if (images.Length == 0)
         {
             throw new ProjectOperationException(ProjectErrorCode.NoSupportedImages,
-                "The source folder contains no supported PNG, JPEG, or WebP images.");
+                $"The source folder contains no supported {SupportedImageFormats.DisplayDescription} images.");
         }
 
         return Task.FromResult(new ChapterSource(images, ignoredFiles));

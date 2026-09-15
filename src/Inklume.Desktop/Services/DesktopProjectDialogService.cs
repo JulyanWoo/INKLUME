@@ -17,9 +17,9 @@ public sealed class DesktopProjectDialogService(IProjectFolderPicker folderPicke
         return dialog.ShowDialog() == true ? viewModel.Result : null;
     }
 
-    public ImportChapterDialogResult? ShowImportChapterDialog()
+    public ImportChapterDialogResult? ShowImportChapterDialog(string? initialSourceFolder = null)
     {
-        var viewModel = new ImportChapterDialogViewModel(folderPicker);
+        var viewModel = new ImportChapterDialogViewModel(folderPicker, initialSourceFolder);
         var dialog = new ImportChapterDialog(viewModel)
         {
             Owner = System.Windows.Application.Current.MainWindow
@@ -27,5 +27,5 @@ public sealed class DesktopProjectDialogService(IProjectFolderPicker folderPicke
         return dialog.ShowDialog() == true ? viewModel.Result : null;
     }
 
-    public string? PickProjectFolder() => folderPicker.PickFolder("Open an INKLUME project folder");
+    public string? PickProjectFolder() => folderPicker.PickFolder("Select a comic or series folder");
 }

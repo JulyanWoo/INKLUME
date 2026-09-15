@@ -12,6 +12,13 @@ public interface IChapterStore
         IProgress<ChapterImportProgress>? progress,
         CancellationToken cancellationToken);
 
+    Task<ChapterIndexResult> IndexChapterInPlaceAsync(
+        ProjectWorkspace workspace,
+        string chapterDirectoryPath,
+        ChapterNumber chapterNumber,
+        string? title,
+        CancellationToken cancellationToken);
+
     Task<IReadOnlyList<Chapter>> GetChaptersAsync(
         ProjectWorkspace workspace,
         CancellationToken cancellationToken);

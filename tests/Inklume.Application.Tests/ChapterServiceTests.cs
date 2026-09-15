@@ -45,7 +45,9 @@ public sealed class ChapterServiceTests
     {
         DateTimeOffset timestamp = DateTimeOffset.UtcNow;
         return new ProjectWorkspace(
-            new TranslationProject(Guid.NewGuid(), "Project", "Series", timestamp, timestamp), @"C:\Project");
+            new TranslationProject(Guid.NewGuid(), "Project", "Series", timestamp, timestamp),
+            @"C:\Project",
+            @"C:\Data\Project");
     }
 
     private static ChapterSource CreateSource()
@@ -84,5 +86,18 @@ public sealed class ChapterServiceTests
         public Task<PageWorkspace> EnsurePageDimensionsAsync(
             ProjectWorkspace workspace, Guid pageId, CancellationToken cancellationToken)
             => throw new NotSupportedException();
+
+        public Task<ChapterIndexResult> IndexChapterInPlaceAsync(
+            ProjectWorkspace workspace,
+            string chapterDirectory,
+            ChapterNumber chapterNumber,
+            string? title = null,
+            CancellationToken cancellationToken = default)
+        {
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            var chapter = new Chapter(Guid.NewGuid(), workspace.Project.Id, chapterNumber, title, now, now);
+            ImportedChapter = chapter;
+            return Task.FromResult(new ChapterIndexResult(workspace, chapter, []));
+        }
     }
 }

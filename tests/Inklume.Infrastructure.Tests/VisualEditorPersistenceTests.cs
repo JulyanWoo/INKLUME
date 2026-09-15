@@ -1,12 +1,14 @@
 using Inklume.Application.Chapters;
 using Inklume.Application.Projects;
 using Inklume.Application.TextRegions;
+using Inklume.Application.Workspaces;
 using Inklume.Domain.Projects;
 using Inklume.Domain.TextRegions;
 using Inklume.Infrastructure.Chapters;
 using Inklume.Infrastructure.Persistence;
 using Inklume.Infrastructure.Projects;
 using Inklume.Infrastructure.TextRegions;
+using Inklume.Infrastructure.Workspaces;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -21,16 +23,24 @@ public sealed class VisualEditorPersistenceTests : IDisposable
     private static readonly byte[] PngBytes = Convert.FromBase64String(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
     private readonly TemporaryWorkspace _temporaryWorkspace = new();
+    private readonly IWorkspaceDataLocation _dataLocation;
+    private readonly FileSystemProjectStore _store;
+
+    public VisualEditorPersistenceTests()
+    {
+        _dataLocation = new DefaultWorkspaceDataLocation(Path.Combine(_temporaryWorkspace.RootPath, "AppData"));
+        _store = new FileSystemProjectStore(_dataLocation);
+    }
 
     [Fact]
     public async Task PreviousSchema_ShouldMigrateAndLazilyPersistPageDimensions()
     {
         (ProjectWorkspace workspace, PageWorkspace importedPage) = await CreateProjectWithPageAsync("Legacy project", 1);
-        string databasePath = Path.Combine(workspace.RootPath, "project.db");
+        string databasePath = workspace.DatabasePath;
         await MigrateToAsync(databasePath, PreviousMigration);
 
-        ProjectWorkspace reopened = await new FileSystemProjectStore().OpenAsync(
-            workspace.RootPath, TestContext.Current.CancellationToken);
+        ProjectWorkspace reopened = await _store.OpenAsync(
+            workspace.SourceRoot, TestContext.Current.CancellationToken);
         ChapterService chapterService = CreateChapterService();
         PageWorkspace unresolved = Assert.Single(await chapterService.GetPagesAsync(
             reopened, importedPage.Page.ChapterId, TestContext.Current.CancellationToken));
@@ -68,8 +78,8 @@ public sealed class VisualEditorPersistenceTests : IDisposable
             TextContainerType.None,
             TestContext.Current.CancellationToken);
 
-        ProjectWorkspace reopened = await new FileSystemProjectStore().OpenAsync(
-            workspace.RootPath, TestContext.Current.CancellationToken);
+        ProjectWorkspace reopened = await _store.OpenAsync(
+            workspace.SourceRoot, TestContext.Current.CancellationToken);
         IReadOnlyList<TextRegion> restored = await service.GetForPageAsync(
             reopened, firstPage.Page.Id, TestContext.Current.CancellationToken);
         IReadOnlyList<TextRegion> otherPageRegions = await service.GetForPageAsync(
@@ -93,7 +103,7 @@ public sealed class VisualEditorPersistenceTests : IDisposable
             page.Page.Id,
             new RectangleTextRegionGeometry(0.1, 0.1, 0.5, 0.5),
             cancellationToken: TestContext.Current.CancellationToken);
-        string databasePath = Path.Combine(workspace.RootPath, "project.db");
+        string databasePath = workspace.DatabasePath;
         string timestamp = DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture);
 
         await Assert.ThrowsAsync<SqliteException>(() => ExecuteSqlAsync(
@@ -120,11 +130,11 @@ public sealed class VisualEditorPersistenceTests : IDisposable
         string name,
         decimal chapterNumber)
     {
-        string projectPath = _temporaryWorkspace.GetPath(name);
+        string sourceRoot = _temporaryWorkspace.GetPath(name);
         DateTimeOffset timestamp = DateTimeOffset.UtcNow;
         var project = new TranslationProject(Guid.NewGuid(), name, "Series", timestamp, timestamp);
-        ProjectWorkspace workspace = await new FileSystemProjectStore().CreateAsync(
-            project, projectPath, TestContext.Current.CancellationToken);
+        ProjectWorkspace workspace = await _store.CreateAsync(
+            project, sourceRoot, TestContext.Current.CancellationToken);
         ChapterImportResult imported = await ImportPageAsync(workspace, chapterNumber);
         return (imported.Workspace, imported.Pages.Single());
     }
@@ -136,7 +146,7 @@ public sealed class VisualEditorPersistenceTests : IDisposable
         string imagePath = Path.Combine(sourcePath, "page.png");
         await File.WriteAllBytesAsync(imagePath, PngBytes, TestContext.Current.CancellationToken);
         ChapterSource source = await new LocalFolderChapterSourceProvider().LoadAsync(
-            sourcePath, workspace.RootPath, TestContext.Current.CancellationToken);
+            sourcePath, workspace.SourceRoot, TestContext.Current.CancellationToken);
         return await CreateChapterService().ImportAsync(
             workspace,
             new ImportChapterRequest(new ChapterNumber(chapterNumber), null, source),

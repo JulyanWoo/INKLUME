@@ -13,9 +13,9 @@ internal static class ProjectContextFiles
     private const long MaximumContextFileBytes = 1024 * 1024;
     private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
 
-    internal static async Task CreateAsync(string rootPath, TranslationProject project, CancellationToken cancellationToken)
+    internal static async Task CreateAsync(string dataRoot, TranslationProject project, CancellationToken cancellationToken)
     {
-        string contextPath = Path.Combine(rootPath, "context");
+        string contextPath = Path.Combine(dataRoot, "context");
         Directory.CreateDirectory(contextPath);
         var header = new ProjectContextHeader(FormatVersion, project.Id);
 
@@ -26,9 +26,9 @@ internal static class ProjectContextFiles
         await WriteAsync(Path.Combine(contextPath, "translation_rules.json"), header, cancellationToken);
     }
 
-    internal static async Task ValidateAsync(string rootPath, TranslationProject project, CancellationToken cancellationToken)
+    internal static async Task ValidateAsync(string dataRoot, TranslationProject project, CancellationToken cancellationToken)
     {
-        string contextPath = Path.Combine(rootPath, "context");
+        string contextPath = Path.Combine(dataRoot, "context");
         SeriesContextDocument series = await ReadAsync<SeriesContextDocument>(Path.Combine(contextPath, "series.json"), cancellationToken);
         ValidateHeader(series.FormatVersion, series.ProjectId, project.Id);
         if (!string.Equals(series.Name, project.SeriesName, StringComparison.Ordinal))

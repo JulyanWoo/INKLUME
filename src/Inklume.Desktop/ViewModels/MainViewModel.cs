@@ -133,9 +133,13 @@ public sealed partial class MainViewModel : ObservableObject
 
     public IAsyncRelayCommand OpenProjectCommand { get; }
 
+    public IAsyncRelayCommand OpenFolderCommand => OpenProjectCommand;
+
     public IAsyncRelayCommand<RecentProjectViewModel> OpenRecentProjectCommand { get; }
 
     public IAsyncRelayCommand CloseProjectCommand { get; }
+
+    public IAsyncRelayCommand CloseFolderCommand => CloseProjectCommand;
 
     public IRelayCommand CancelOperationCommand { get; }
 
@@ -245,9 +249,9 @@ public sealed partial class MainViewModel : ObservableObject
         }
 
         return RunProjectOperationAsync(
-            token => _projectService.OpenAsync(project.RootPath, token),
-            "Opening project...",
-            "Project opened.");
+            token => _projectService.OpenAsync(project.SourceRoot, token),
+            "Opening folder...",
+            "Folder opened.");
     }
 
     private async Task RunProjectOperationAsync(

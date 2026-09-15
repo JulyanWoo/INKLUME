@@ -93,7 +93,8 @@ public sealed class VisualEditorViewModelTests
     private static ProjectWorkspace CreateWorkspace()
         => new(
             new TranslationProject(Guid.NewGuid(), "Project", "Series", Timestamp, Timestamp),
-            @"C:\Project");
+            @"C:\Project",
+            @"C:\Data\Project");
 
     private static PageWorkspace CreatePage(int number)
     {
@@ -121,12 +122,27 @@ public sealed class VisualEditorViewModelTests
         public Task<PageWorkspace> EnsurePageDimensionsAsync(
             ProjectWorkspace workspace, Guid pageId, CancellationToken cancellationToken)
             => Task.FromResult(pages.Single(page => page.Page.Id == pageId));
+
+        public Task<ChapterIndexResult> IndexChapterInPlaceAsync(
+            ProjectWorkspace workspace,
+            string chapterDirectory,
+            ChapterNumber chapterNumber,
+            string? title = null,
+            CancellationToken cancellationToken = default)
+        {
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            var chapter = new Chapter(Guid.NewGuid(), workspace.Project.Id, chapterNumber, title, now, now);
+            return Task.FromResult(new ChapterIndexResult(workspace, chapter, pages));
+        }
     }
 
     private sealed class PreviewLoaderStub : IPagePreviewLoader
     {
         public Task<PagePreview> LoadAsync(
             string filePath, int rawPixelWidth, int rawPixelHeight, CancellationToken cancellationToken)
-            => Task.FromResult(new PagePreview(new DrawingImage(), 540, 7500));
+            => Task.FromResult(new PagePreview(new DrawingImage(), 540, 7500, rawPixelWidth, rawPixelHeight));
+
+        public Task<PagePreview> LoadImageAsync(string filePath, CancellationToken cancellationToken)
+            => Task.FromResult(new PagePreview(new DrawingImage(), 540, 7500, 1080, 15000));
     }
 }

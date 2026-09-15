@@ -252,7 +252,7 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="TreeViewItem">
-                    <Grid Background="{TemplateBinding Background}">
+                    <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
@@ -331,6 +331,9 @@
             </DataTrigger>
             <DataTrigger Binding="{Binding Kind}" Value="{x:Static viewModels:ExplorerNodeKind.GenericFile}">
                 <Setter Property="Symbol" Value="Document24" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding Kind}" Value="{x:Static viewModels:ExplorerNodeKind.GenericImageFile}">
+                <Setter Property="Symbol" Value="Image24" />
             </DataTrigger>
         </Style.Triggers>
     </Style>

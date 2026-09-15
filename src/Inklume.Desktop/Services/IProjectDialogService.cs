@@ -6,7 +6,7 @@ public interface IProjectDialogService
 {
     CreateProjectRequest? ShowNewProjectDialog();
 
-    ImportChapterDialogResult? ShowImportChapterDialog();
+    ImportChapterDialogResult? ShowImportChapterDialog(string? initialSourceFolder = null);
 
     string? PickProjectFolder();
 }

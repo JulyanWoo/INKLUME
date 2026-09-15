@@ -97,7 +97,7 @@ public sealed class ProjectExplorerTests : IDisposable
 
         // Create domain entities
         var project = new TranslationProject(Guid.NewGuid(), "My Project", "Test Series", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
-        var workspace = new ProjectWorkspace(project, _testRoot);
+        var workspace = new ProjectWorkspace(project, _testRoot, Path.Combine(_testRoot, "data"));
 
         var chapter = new Chapter(Guid.NewGuid(), project.Id, new ChapterNumber(1), "Chapter 1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
         string hash1 = new('a', 64);
@@ -142,7 +142,7 @@ public sealed class ProjectExplorerTests : IDisposable
         Assert.Contains(projectRoot.Children, c => c.DisplayName == "context" && c.Kind == ExplorerNodeKind.ContextFolder);
         Assert.Contains(projectRoot.Children, c => c.DisplayName == "project.db" && c.Kind == ExplorerNodeKind.ProjectDatabase);
         Assert.Contains(projectRoot.Children, c => c.DisplayName == "references" && c.Kind == ExplorerNodeKind.GenericFolder);
-        Assert.Contains(projectRoot.Children, c => c.DisplayName == "cover.png" && c.Kind == ExplorerNodeKind.GenericFile);
+        Assert.Contains(projectRoot.Children, c => c.DisplayName == "cover.png" && c.Kind == ExplorerNodeKind.GenericImageFile);
         Assert.Contains(projectRoot.Children, c => c.DisplayName == "notes.txt" && c.Kind == ExplorerNodeKind.GenericFile);
 
         // 9. cache hidden.
@@ -215,7 +215,7 @@ public sealed class ProjectExplorerTests : IDisposable
     public async Task ExpandingParentNode_DoesNotSelectParent()
     {
         var project = new TranslationProject(Guid.NewGuid(), "ParentExpand", "Test", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
-        var workspace = new ProjectWorkspace(project, _testRoot);
+        var workspace = new ProjectWorkspace(project, _testRoot, Path.Combine(_testRoot, "data"));
         var chapter = new Chapter(Guid.NewGuid(), project.Id, new ChapterNumber(1), "Ch 1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
         var chapterService = new ChapterService(new ChapterStoreStub([chapter], []), TimeProvider.System);
 
@@ -238,7 +238,7 @@ public sealed class ProjectExplorerTests : IDisposable
     public async Task SingleSelection_EnforcesOnlyOneNodeSelectedAtAnyTime()
     {
         var project = new TranslationProject(Guid.NewGuid(), "SelectionTest", "Test", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
-        var workspace = new ProjectWorkspace(project, _testRoot);
+        var workspace = new ProjectWorkspace(project, _testRoot, Path.Combine(_testRoot, "data"));
         var chapter = new Chapter(Guid.NewGuid(), project.Id, new ChapterNumber(1), "Ch 1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
         var chapterService = new ChapterService(new ChapterStoreStub([chapter], []), TimeProvider.System);
 
@@ -299,7 +299,7 @@ public sealed class ProjectExplorerTests : IDisposable
         }
 
         var project = new TranslationProject(projectId, "Large Project", "Massive Series", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
-        var workspace = new ProjectWorkspace(project, _testRoot);
+        var workspace = new ProjectWorkspace(project, _testRoot, Path.Combine(_testRoot, "data"));
         var chapterService = new ChapterService(new ChapterStoreStub(chapters, pages), TimeProvider.System);
 
         var explorer = new ProjectExplorerViewModel(workspace, chapterService);
@@ -377,7 +377,7 @@ public sealed class ProjectExplorerTests : IDisposable
 
     private sealed class StubLocalChapterSourceProvider : ILocalChapterSourceProvider
     {
-        public Task<ChapterSource> LoadAsync(string sourceFolder, string projectRootPath, CancellationToken cancellationToken)
+        public Task<ChapterSource> LoadAsync(string sourceFolder, string projectRoot, CancellationToken cancellationToken)
             => Task.FromResult(new ChapterSource([], []));
     }
 }

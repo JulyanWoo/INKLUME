@@ -24,10 +24,15 @@ public sealed partial class ImportChapterDialogViewModel : ObservableObject
     [ObservableProperty]
     private string _errorMessage = string.Empty;
 
-    public ImportChapterDialogViewModel(IProjectFolderPicker folderPicker)
+    public ImportChapterDialogViewModel(IProjectFolderPicker folderPicker, string? initialSourceFolder = null)
     {
         ArgumentNullException.ThrowIfNull(folderPicker);
         _folderPicker = folderPicker;
+        if (!string.IsNullOrWhiteSpace(initialSourceFolder))
+        {
+            _sourceFolder = initialSourceFolder;
+        }
+
         BrowseCommand = new RelayCommand(Browse);
         ImportCommand = new RelayCommand(Import, CanImport);
         CancelCommand = new RelayCommand(() => CloseRequested?.Invoke(this, new DialogCloseRequestedEventArgs(false)));

@@ -23,11 +23,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     private ProjectExplorerNode? _selectedExplorerNode;
     private bool _isStopping;
 
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ProjectName))]
-    [NotifyPropertyChangedFor(nameof(SeriesName))]
-    [NotifyPropertyChangedFor(nameof(ProjectPath))]
-    private ProjectWorkspace _workspace;
+    public ProjectWorkspace Workspace { get; }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsIdle))]
@@ -49,6 +45,15 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(SelectedContentHash))]
     [NotifyPropertyChangedFor(nameof(SelectedPixelDimensions))]
     private PageWorkspace? _selectedPage;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSelectedGenericImage))]
+    [NotifyPropertyChangedFor(nameof(SelectedGenericImageFileName))]
+    [NotifyPropertyChangedFor(nameof(SelectedGenericImageRelativePath))]
+    [NotifyPropertyChangedFor(nameof(SelectedGenericImageExtension))]
+    [NotifyPropertyChangedFor(nameof(SelectedGenericImageDimensions))]
+    [NotifyPropertyChangedFor(nameof(SelectedGenericImageFileSize))]
+    private ProjectExplorerNode? _selectedGenericImageNode;
 
     [ObservableProperty]
     private string _statusMessage = "Project loaded.";
@@ -105,11 +110,11 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         ArgumentNullException.ThrowIfNull(dialogService);
         ArgumentNullException.ThrowIfNull(textRegionService);
         ArgumentNullException.ThrowIfNull(previewLoader);
-        _workspace = workspace;
+        Workspace = workspace;
         _chapterService = chapterService;
         _localChapterSourceProvider = localChapterSourceProvider;
         _dialogService = dialogService;
-        Explorer = new ProjectExplorerViewModel(workspace, chapterService);
+        Explorer = new ProjectExplorerViewModel(Workspace, chapterService);
         Explorer.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(ProjectExplorerViewModel.HasChapters))
@@ -119,10 +124,11 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         };
 
         VisualEditor = new VisualEditorViewModel(
-            workspace, chapterService, textRegionService, previewLoader);
+            Workspace, chapterService, textRegionService, previewLoader);
         VisualEditor.PropertyChanged += OnVisualEditorPropertyChanged;
 
-        ImportChapterCommand = new AsyncRelayCommand(ImportChapterAsync, () => IsIdle);
+        ImportChapterCommand = new AsyncRelayCommand(() => ImportChapterWithFolderAsync(null), () => IsIdle);
+        ImportChapterWithFolderCommand = new AsyncRelayCommand<string?>(ImportChapterWithFolderAsync, _ => IsIdle);
         CancelOperationCommand = new RelayCommand(CancelOperation, () => IsCancellationAvailable);
         ToggleOutputCommand = new RelayCommand(() => IsOutputVisible = !IsOutputVisible);
     }
@@ -133,7 +139,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject
 
     public string SeriesName => Workspace.Project.SeriesName;
 
-    public string ProjectPath => Workspace.RootPath;
+    public string SourcePath => Workspace.SourceRoot;
 
     public bool IsIdle => !IsBusy && !_isStopping;
 
@@ -162,11 +168,66 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         ? $"{width} x {height}"
         : "Not resolved";
 
+    public bool HasSelectedGenericImage => SelectedGenericImageNode is not null;
+
+    public string SelectedGenericImageFileName => SelectedGenericImageNode?.DisplayName ?? string.Empty;
+
+    public string SelectedGenericImageRelativePath
+    {
+        get
+        {
+            if (SelectedGenericImageNode?.FullPath is null)
+            {
+                return string.Empty;
+            }
+
+            try
+            {
+                return Path.GetRelativePath(Workspace.SourceRoot, SelectedGenericImageNode.FullPath);
+            }
+            catch
+            {
+                return SelectedGenericImageNode.FullPath;
+            }
+        }
+    }
+
+    public string SelectedGenericImageExtension => SelectedGenericImageNode?.FullPath is not null
+        ? Path.GetExtension(SelectedGenericImageNode.FullPath)
+        : string.Empty;
+
+    public string SelectedGenericImageDimensions => VisualEditor.ImageWidth > 0 && VisualEditor.ImageHeight > 0
+        ? $"{VisualEditor.ImageWidth:0} x {VisualEditor.ImageHeight:0}"
+        : "Not loaded";
+
+    public string SelectedGenericImageFileSize
+    {
+        get
+        {
+            if (SelectedGenericImageNode?.FullPath is not null && File.Exists(SelectedGenericImageNode.FullPath))
+            {
+                try
+                {
+                    long bytes = new FileInfo(SelectedGenericImageNode.FullPath).Length;
+                    return FormatFileSize(bytes);
+                }
+                catch
+                {
+                    return string.Empty;
+                }
+            }
+
+            return string.Empty;
+        }
+    }
+
     public ObservableCollection<ProjectExplorerNode> ExplorerRoots => Explorer.Roots;
 
     public ObservableCollection<string> OutputMessages { get; } = [];
 
     public IAsyncRelayCommand ImportChapterCommand { get; }
+
+    public IAsyncRelayCommand<string?> ImportChapterWithFolderCommand { get; }
 
     public IRelayCommand CancelOperationCommand { get; }
 
@@ -199,6 +260,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         _isStopping = true;
         OnPropertyChanged(nameof(IsIdle));
         ImportChapterCommand.NotifyCanExecuteChanged();
+        ImportChapterWithFolderCommand.NotifyCanExecuteChanged();
         CancelOperation();
         await CancelSelectionAsync();
         await Task.WhenAll(ImportChapterCommand.ExecutionTask ?? Task.CompletedTask, _selectionTask);
@@ -208,12 +270,12 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         OnPropertyChanged(nameof(HasChapters));
     }
 
-    private async Task ImportChapterAsync()
+    private async Task ImportChapterWithFolderAsync(string? prefilledSourceFolder)
     {
         ImportChapterDialogResult? dialogResult;
         try
         {
-            dialogResult = _dialogService.ShowImportChapterDialog();
+            dialogResult = _dialogService.ShowImportChapterDialog(prefilledSourceFolder);
         }
         catch (Exception exception)
         {
@@ -247,13 +309,12 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         {
             ChapterSource source = await Task.Run(
                 () => _localChapterSourceProvider.LoadAsync(
-                    dialogResult.SourceFolder, Workspace.RootPath, cancellation.Token),
+                    dialogResult.SourceFolder, Workspace.SourceRoot, cancellation.Token),
                 cancellation.Token);
             var request = new ImportChapterRequest(dialogResult.Number, dialogResult.Title, source);
             ChapterImportResult result = await Task.Run(
                 () => _chapterService.ImportAsync(Workspace, request, progress, cancellation.Token),
                 cancellation.Token);
-            Workspace = result.Workspace;
             await ReloadExplorerAsync(result.Chapter.Id, cancellation.Token);
             WarningMessage = result.IgnoredFiles.Count == 0
                 ? string.Empty
@@ -287,47 +348,50 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     private async Task ReloadExplorerAsync(Guid? selectedChapterId, CancellationToken cancellationToken)
     {
         ClearSelection();
-        await Explorer.RefreshAsync(cancellationToken);
+        await Explorer.RefreshChaptersAsync();
 
         if (selectedChapterId.HasValue && Explorer.Roots.Count > 0)
         {
             ProjectExplorerNode projectNode = Explorer.Roots[0];
-            ProjectExplorerNode? chaptersNode = projectNode.Children
-                .FirstOrDefault(n => n.Kind == ExplorerNodeKind.ChaptersFolder);
-            if (chaptersNode is not null)
+            ProjectExplorerNode? chapterNode = FindChapterNode(projectNode, selectedChapterId.Value);
+            if (chapterNode is not null)
             {
-                await chaptersNode.EnsureLoadedAsync();
-                chaptersNode.IsExpanded = true;
-                ProjectExplorerNode? chapterNode = chaptersNode.Children
-                    .FirstOrDefault(n => n.Kind == ExplorerNodeKind.Chapter && n.Chapter?.Id == selectedChapterId.Value);
-                if (chapterNode is not null)
+                await chapterNode.EnsureLoadedAsync();
+                chapterNode.IsExpanded = true;
+                ProjectExplorerNode? firstPage = chapterNode.Children
+                    .FirstOrDefault(n => n.Kind == ExplorerNodeKind.Page);
+                if (firstPage is not null)
                 {
-                    await chapterNode.EnsureLoadedAsync();
-                    chapterNode.IsExpanded = true;
-                    ProjectExplorerNode? rawFolder = chapterNode.Children
-                        .FirstOrDefault(n => n.Kind == ExplorerNodeKind.RawFolder);
-                    if (rawFolder is not null)
-                    {
-                        await rawFolder.EnsureLoadedAsync();
-                        rawFolder.IsExpanded = true;
-                        ProjectExplorerNode? firstPage = rawFolder.Children
-                            .FirstOrDefault(n => n.Kind == ExplorerNodeKind.Page);
-                        if (firstPage is not null)
-                        {
-                            await SelectExplorerNodeAsync(firstPage);
-                        }
-                        else
-                        {
-                            await SelectExplorerNodeAsync(chapterNode);
-                        }
-                    }
-                    else
-                    {
-                        await SelectExplorerNodeAsync(chapterNode);
-                    }
+                    await SelectExplorerNodeAsync(firstPage);
+                }
+                else
+                {
+                    await SelectExplorerNodeAsync(chapterNode);
                 }
             }
         }
+    }
+
+    private static ProjectExplorerNode? FindChapterNode(ProjectExplorerNode parent, Guid chapterId)
+    {
+        foreach (ProjectExplorerNode child in parent.Children)
+        {
+            if (child.Kind == ExplorerNodeKind.Chapter && child.Chapter?.Id == chapterId)
+            {
+                return child;
+            }
+
+            if (child.Kind is ExplorerNodeKind.ChaptersFolder or ExplorerNodeKind.GenericFolder)
+            {
+                ProjectExplorerNode? found = FindChapterNode(child, chapterId);
+                if (found is not null)
+                {
+                    return found;
+                }
+            }
+        }
+
+        return null;
     }
 
     private async Task SelectExplorerNodeCoreAsync(ProjectExplorerNode node)
@@ -345,6 +409,13 @@ public sealed partial class WorkspaceViewModel : ObservableObject
                     break;
                 case ExplorerNodeKind.Page:
                     await LoadPageAsync(node, cancellation.Token);
+                    break;
+                case ExplorerNodeKind.GenericImageFile:
+                    if (await TryIndexAndLoadAsChapterPageAsync(node, cancellation.Token))
+                    {
+                        break;
+                    }
+                    await LoadGenericImageAsync(node, cancellation.Token);
                     break;
                 default:
                     ClearSelectionData();
@@ -379,11 +450,19 @@ public sealed partial class WorkspaceViewModel : ObservableObject
 
     private void SelectChapterMetadata(ProjectExplorerNode node)
     {
-        Chapter chapter = node.Chapter
-            ?? throw new InvalidOperationException("The explorer chapter node has no chapter metadata.");
-        StatusMessage = $"Chapter {chapter.Number} selected.";
-        SelectedChapter = chapter;
+        if (node.Chapter is { } chapter)
+        {
+            StatusMessage = $"Chapter {chapter.Number} selected.";
+            SelectedChapter = chapter;
+        }
+        else
+        {
+            StatusMessage = $"{node.DisplayName} selected.";
+            SelectedChapter = null;
+        }
+
         SelectedPage = null;
+        SelectedGenericImageNode = null;
         VisualEditor.Clear();
     }
 
@@ -393,6 +472,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject
             ?? throw new InvalidOperationException("The explorer page node has no page metadata.");
         SelectedChapter = node.Chapter;
         SelectedPage = page;
+        SelectedGenericImageNode = null;
         StatusMessage = $"Loading page {page.Page.Number}...";
         try
         {
@@ -409,6 +489,92 @@ public sealed partial class WorkspaceViewModel : ObservableObject
             Trace.TraceError("Loading page preview failed: {0}", exception);
             VisualEditor.ReportInteractionError(exception);
             StatusMessage = "Page preview unavailable.";
+        }
+    }
+
+    private async Task LoadGenericImageAsync(ProjectExplorerNode node, CancellationToken cancellationToken)
+    {
+        string filePath = node.FullPath
+            ?? throw new InvalidOperationException("The generic image node has no file path.");
+        SelectedChapter = null;
+        SelectedPage = null;
+        SelectedGenericImageNode = node;
+        StatusMessage = $"Loading image {node.DisplayName}...";
+        try
+        {
+            await VisualEditor.LoadGenericImageAsync(filePath, cancellationToken);
+            StatusMessage = VisualEditor.StatusMessage;
+            OnPropertyChanged(nameof(SelectedGenericImageDimensions));
+            AddOutput($"Image {node.DisplayName} loaded (read-only preview).");
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            Trace.TraceError("Loading generic image preview failed: {0}", exception);
+            VisualEditor.ReportInteractionError(exception);
+            StatusMessage = "Image preview unavailable.";
+        }
+    }
+
+    private async Task<bool> TryIndexAndLoadAsChapterPageAsync(
+        ProjectExplorerNode node, CancellationToken cancellationToken)
+    {
+        string? filePath = node.FullPath;
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            return false;
+        }
+
+        string? folderPath = Path.GetDirectoryName(filePath);
+        if (string.IsNullOrWhiteSpace(folderPath))
+        {
+            return false;
+        }
+
+        string normalizedFolder = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folderPath));
+        string normalizedSource = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Workspace.SourceRoot));
+        if (string.Equals(normalizedFolder, normalizedSource, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        string folderName = Path.GetFileName(folderPath);
+        if (!ChapterNumber.TryParse(folderName, out ChapterNumber chapterNumber))
+        {
+            return false;
+        }
+
+        if (!normalizedFolder.StartsWith(normalizedSource, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        try
+        {
+            StatusMessage = $"Indexing Chapter {chapterNumber}...";
+            ChapterIndexResult result = await _chapterService.IndexChapterInPlaceAsync(
+                Workspace, folderPath, chapterNumber, title: null, cancellationToken);
+
+            PageWorkspace? matchedPage = result.Pages.FirstOrDefault(
+                p => string.Equals(Path.GetFullPath(p.FilePath), Path.GetFullPath(filePath), StringComparison.OrdinalIgnoreCase));
+
+            if (matchedPage is null)
+            {
+                return false;
+            }
+
+            var pageNode = ProjectExplorerNode.CreatePage(result.Chapter, matchedPage);
+            await LoadPageAsync(pageNode, cancellationToken);
+            await ReloadExplorerAsync(result.Chapter.Id, cancellationToken);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Trace.TraceWarning("Could not index folder '{0}' as chapter on page selection: {1}", folderPath, exception);
+            return false;
         }
     }
 
@@ -444,6 +610,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     {
         SelectedChapter = null;
         SelectedPage = null;
+        SelectedGenericImageNode = null;
         VisualEditor.Clear();
     }
 
@@ -462,6 +629,21 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(IsCancellationAvailable));
         CancelOperationCommand.NotifyCanExecuteChanged();
+    }
+
+    private static string FormatFileSize(long bytes)
+    {
+        if (bytes < 1024)
+        {
+            return $"{bytes} B";
+        }
+
+        if (bytes < 1024 * 1024)
+        {
+            return $"{bytes / 1024.0:0.#} KB";
+        }
+
+        return $"{bytes / (1024.0 * 1024.0):0.##} MB";
     }
 
     private void ReportProjectError(ProjectOperationException exception)
@@ -494,6 +676,12 @@ public sealed partial class WorkspaceViewModel : ObservableObject
             && !string.IsNullOrWhiteSpace(VisualEditor.ErrorMessage))
         {
             ErrorMessage = VisualEditor.ErrorMessage;
+        }
+
+        if (eventArgs.PropertyName is nameof(VisualEditorViewModel.ImageWidth)
+            or nameof(VisualEditorViewModel.ImageHeight))
+        {
+            OnPropertyChanged(nameof(SelectedGenericImageDimensions));
         }
     }
 }

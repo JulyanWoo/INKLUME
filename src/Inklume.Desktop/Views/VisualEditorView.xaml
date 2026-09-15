@@ -28,18 +28,36 @@
                                  Command="{Binding SelectToolCommand}" />
                     <RadioButton Content="Rectangle"
                                  Style="{DynamicResource EditorToolButtonStyle}"
+                                 IsEnabled="{Binding IsEditingEnabled}"
                                  IsChecked="{Binding SelectedTool, Converter={StaticResource EnumEqualsConverter}, ConverterParameter={x:Static editor:VisualEditorTool.RectangleRegion}}"
                                  Command="{Binding RectangleToolCommand}" />
                     <RadioButton Content="Polygon"
                                  Style="{DynamicResource EditorToolButtonStyle}"
+                                 IsEnabled="{Binding IsEditingEnabled}"
                                  IsChecked="{Binding SelectedTool, Converter={StaticResource EnumEqualsConverter}, ConverterParameter={x:Static editor:VisualEditorTool.PolygonRegion}}"
                                  Command="{Binding PolygonToolCommand}" />
                 </StackPanel>
-                <TextBlock Grid.Column="1" Text="RAW VISUAL EDITOR"
-                           Style="{DynamicResource CaptionTextStyle}"
-                           FontWeight="SemiBold"
-                           HorizontalAlignment="Center"
-                           VerticalAlignment="Center" />
+                <StackPanel Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <TextBlock Text="RAW VISUAL EDITOR"
+                               Style="{DynamicResource CaptionTextStyle}"
+                               FontWeight="SemiBold"
+                               HorizontalAlignment="Center" />
+                    <TextBlock Text="Read-only image preview"
+                               FontSize="10"
+                               Foreground="{DynamicResource TextMutedBrush}"
+                               HorizontalAlignment="Center">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsGenericPreview}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </StackPanel>
                 <ui:Button Grid.Column="2"
                            Content="Fit"
                            Appearance="Transparent"
@@ -90,7 +108,7 @@
                     <Style TargetType="StackPanel">
                         <Setter Property="Visibility" Value="Visible" />
                         <Style.Triggers>
-                            <DataTrigger Binding="{Binding HasPage}" Value="True">
+                            <DataTrigger Binding="{Binding HasPreview}" Value="True">
                                 <Setter Property="Visibility" Value="Collapsed" />
                             </DataTrigger>
                         </Style.Triggers>

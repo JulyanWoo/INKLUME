@@ -26,6 +26,28 @@
                                 </MultiDataTrigger.Conditions>
                                 <Setter Property="Background" Value="{DynamicResource CardHoverBackgroundBrush}" />
                             </MultiDataTrigger>
+                            <DataTrigger Binding="{Binding IsChapterCandidate}" Value="True">
+                                <Setter Property="ContextMenu">
+                                    <Setter.Value>
+                                        <ContextMenu>
+                                            <MenuItem Header="Import as Chapter..."
+                                                      Command="{Binding DataContext.ImportChapterWithFolderCommand, RelativeSource={RelativeSource AncestorType=views:WorkspaceView}}"
+                                                      CommandParameter="{Binding FullPath}" />
+                                        </ContextMenu>
+                                    </Setter.Value>
+                                </Setter>
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding HasLooseImages}" Value="True">
+                                <Setter Property="ContextMenu">
+                                    <Setter.Value>
+                                        <ContextMenu>
+                                            <MenuItem Header="Import loose images as chapter..."
+                                                      Command="{Binding DataContext.ImportChapterWithFolderCommand, RelativeSource={RelativeSource AncestorType=views:WorkspaceView}}"
+                                                      CommandParameter="{Binding FullPath}" />
+                                        </ContextMenu>
+                                    </Setter.Value>
+                                </Setter>
+                            </DataTrigger>
                         </Style.Triggers>
                     </Style>
                 </Border.Style>
@@ -42,13 +64,23 @@
                             Converter={StaticResource BooleanToVisibilityConverter}}" />
                     <ui:SymbolIcon Grid.Column="1" Style="{DynamicResource ProjectExplorerIconStyle}"
                                    VerticalAlignment="Center" />
-                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                        <TextBlock Text="{Binding DisplayName}" Foreground="{DynamicResource TextPrimaryBrush}"
-                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                        <TextBlock Text="{Binding SecondaryText}" Margin="8,0,0,0"
-                                   Style="{DynamicResource CaptionTextStyle}" TextTrimming="CharacterEllipsis"
+                    <Grid Grid.Column="2" VerticalAlignment="Center">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{Binding DisplayName}"
+                                   Foreground="{DynamicResource TextPrimaryBrush}"
+                                   TextTrimming="CharacterEllipsis"
+                                   ToolTip="{Binding DisplayName}"
                                    VerticalAlignment="Center" />
-                    </StackPanel>
+                        <TextBlock Grid.Column="1"
+                                   Text="{Binding SecondaryText}"
+                                   Margin="6,0,0,0"
+                                   Style="{DynamicResource CaptionTextStyle}"
+                                   TextTrimming="CharacterEllipsis"
+                                   VerticalAlignment="Center" />
+                    </Grid>
                 </Grid>
             </Border>
         </HierarchicalDataTemplate>
@@ -91,6 +123,10 @@
                               ItemsSource="{Binding ExplorerRoots}"
                               ItemContainerStyle="{StaticResource ProjectExplorerItemStyle}"
                               SelectedItemChanged="OnExplorerSelectionChanged"
+                              PreviewMouseDown="OnProjectExplorerPreviewMouseDown"
+                              PreviewMouseDoubleClick="OnProjectExplorerPreviewMouseDoubleClick"
+                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                              ScrollViewer.VerticalScrollBarVisibility="Auto"
                               Background="Transparent" BorderThickness="0" Padding="5"
                               AutomationProperties.Name="Project explorer" />
                     <StackPanel Margin="18,0,18,20" VerticalAlignment="Bottom">
@@ -129,6 +165,7 @@
                                FontWeight="SemiBold" VerticalAlignment="Center" Margin="12,0" />
                 </Border>
                 <Grid Grid.Row="1" Margin="16,14">
+                    <!-- Canonical Page Inspector -->
                     <StackPanel>
                         <StackPanel.Style>
                             <Style TargetType="StackPanel">
@@ -160,6 +197,39 @@
                         <TextBlock Text="{Binding SelectedContentHash}" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,2,0,11"
                                    FontFamily="Consolas" FontSize="11" TextWrapping="Wrap" />
                     </StackPanel>
+
+                    <!-- Generic Image Inspector -->
+                    <StackPanel>
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasSelectedGenericImage}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding VisualEditor.HasSelectedRegion}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+                        <TextBlock Text="Image File" Style="{DynamicResource SectionTitleTextStyle}" Margin="0,0,0,8" />
+                        <Border Background="{DynamicResource CardHoverBackgroundBrush}" CornerRadius="3" Padding="6,3" Margin="0,0,0,14" HorizontalAlignment="Left">
+                            <TextBlock Text="Not imported (Read-only)" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" />
+                        </Border>
+                        <TextBlock Text="File name" Style="{DynamicResource CaptionTextStyle}" />
+                        <TextBlock Text="{Binding SelectedGenericImageFileName}" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,2,0,11" TextWrapping="Wrap" />
+                        <TextBlock Text="Relative path" Style="{DynamicResource CaptionTextStyle}" />
+                        <TextBlock Text="{Binding SelectedGenericImageRelativePath}" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,2,0,11" TextWrapping="Wrap" />
+                        <TextBlock Text="Extension" Style="{DynamicResource CaptionTextStyle}" />
+                        <TextBlock Text="{Binding SelectedGenericImageExtension}" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,2,0,11" />
+                        <TextBlock Text="Pixel dimensions" Style="{DynamicResource CaptionTextStyle}" />
+                        <TextBlock Text="{Binding SelectedGenericImageDimensions}" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,2,0,11" />
+                        <TextBlock Text="File size" Style="{DynamicResource CaptionTextStyle}" />
+                        <TextBlock Text="{Binding SelectedGenericImageFileSize}" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,2,0,11" />
+                    </StackPanel>
+
+                    <!-- Text Region Inspector -->
                     <StackPanel DataContext="{Binding VisualEditor}">
                         <StackPanel.Style>
                             <Style TargetType="StackPanel">
@@ -198,23 +268,73 @@
                                    HorizontalAlignment="Left"
                                    Margin="0,5,0,0" />
                     </StackPanel>
+
+                    <!-- Candidate Folder Inspector Panel -->
+                    <StackPanel>
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SelectedExplorerNode.IsChapterCandidate}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+                        <TextBlock Text="Chapter Candidate" Style="{DynamicResource SectionTitleTextStyle}" Margin="0,0,0,10" />
+                        <TextBlock Text="This folder contains images that can be imported as a chapter."
+                                   Style="{DynamicResource CaptionTextStyle}" TextWrapping="Wrap" Margin="0,0,0,14" />
+                        <ui:Button Content="Import as Chapter..."
+                                   Appearance="Primary"
+                                   Command="{Binding ImportChapterWithFolderCommand}"
+                                   CommandParameter="{Binding SelectedExplorerNode.FullPath}"
+                                   HorizontalAlignment="Left" />
+                    </StackPanel>
+
+                    <!-- Loose Images in Chapters Folder Inspector Panel -->
+                    <StackPanel>
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SelectedExplorerNode.HasLooseImages}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+                        <TextBlock Text="Loose Chapter Images" Style="{DynamicResource SectionTitleTextStyle}" Margin="0,0,0,10" />
+                        <TextBlock Text="Images directly inside chapters folder can be imported as a chapter."
+                                   Style="{DynamicResource CaptionTextStyle}" TextWrapping="Wrap" Margin="0,0,0,14" />
+                        <ui:Button Content="Import loose images..."
+                                   Appearance="Primary"
+                                   Command="{Binding ImportChapterWithFolderCommand}"
+                                   CommandParameter="{Binding SelectedExplorerNode.FullPath}"
+                                   HorizontalAlignment="Left" />
+                    </StackPanel>
+
+                    <!-- Nothing selected -->
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                         <StackPanel.Style>
                             <Style TargetType="StackPanel">
                                 <Setter Property="Visibility" Value="Collapsed" />
                                 <Style.Triggers>
-                                    <DataTrigger Binding="{Binding HasSelectedPage}" Value="False">
+                                    <MultiDataTrigger>
+                                        <MultiDataTrigger.Conditions>
+                                            <Condition Binding="{Binding HasSelectedPage}" Value="False" />
+                                            <Condition Binding="{Binding HasSelectedGenericImage}" Value="False" />
+                                            <Condition Binding="{Binding VisualEditor.HasSelectedRegion}" Value="False" />
+                                            <Condition Binding="{Binding SelectedExplorerNode.IsChapterCandidate}" Value="False" />
+                                            <Condition Binding="{Binding SelectedExplorerNode.HasLooseImages}" Value="False" />
+                                        </MultiDataTrigger.Conditions>
                                         <Setter Property="Visibility" Value="Visible" />
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding VisualEditor.HasSelectedRegion}" Value="True">
-                                        <Setter Property="Visibility" Value="Collapsed" />
-                                    </DataTrigger>
+                                    </MultiDataTrigger>
                                 </Style.Triggers>
                             </Style>
                         </StackPanel.Style>
                         <TextBlock Text="Nothing selected" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextPrimaryBrush}" HorizontalAlignment="Center" />
-                        <TextBlock Text="Select a page to inspect its metadata."
+                        <TextBlock Text="Select a page or image to inspect its metadata."
                                    Style="{DynamicResource CaptionTextStyle}" Margin="0,6,0,0"
                                    TextAlignment="Center" TextWrapping="Wrap" />
                     </StackPanel>

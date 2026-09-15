@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using Inklume.Application.Chapters;
 using Inklume.Application.Projects;
 
 namespace Inklume.Infrastructure.Chapters;
@@ -7,13 +8,7 @@ internal readonly record struct ImageDimensions(int PixelWidth, int PixelHeight)
 
 internal static class ImageFileValidator
 {
-    internal static readonly IReadOnlySet<string> SupportedExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    {
-        ".png",
-        ".jpg",
-        ".jpeg",
-        ".webp"
-    };
+    internal static readonly IReadOnlySet<string> SupportedExtensions = SupportedImageFormats.Extensions;
 
     internal static async Task<ImageDimensions> ValidateAsync(
         Stream stream, string originalFileName, string extension, CancellationToken cancellationToken)

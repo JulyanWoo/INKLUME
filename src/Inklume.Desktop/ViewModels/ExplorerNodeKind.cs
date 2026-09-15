@@ -13,5 +13,6 @@ public enum ExplorerNodeKind
     ProjectDatabase,
     GenericFolder,
     GenericFile,
+    GenericImageFile,
     Placeholder
 }

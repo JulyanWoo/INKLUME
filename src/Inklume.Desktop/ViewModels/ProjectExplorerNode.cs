@@ -20,7 +20,8 @@ public sealed partial class ProjectExplorerNode : ObservableObject
         string? fullPath = null,
         Chapter? chapter = null,
         PageWorkspace? page = null,
-        Func<ProjectExplorerNode, Task<IReadOnlyList<ProjectExplorerNode>>>? childrenLoader = null)
+        Func<ProjectExplorerNode, Task<IReadOnlyList<ProjectExplorerNode>>>? childrenLoader = null,
+        bool isChapterCandidate = false)
     {
         Kind = kind;
         DisplayName = displayName;
@@ -29,6 +30,7 @@ public sealed partial class ProjectExplorerNode : ObservableObject
         Chapter = chapter;
         Page = page;
         _childrenLoader = childrenLoader;
+        IsChapterCandidate = isChapterCandidate;
 
         if (_childrenLoader is not null)
         {
@@ -61,6 +63,10 @@ public sealed partial class ProjectExplorerNode : ObservableObject
     }
 
     public bool IsLoaded { get; private set; }
+
+    public bool IsChapterCandidate { get; }
+
+    public bool HasLooseImages { get; set; }
 
     public ExplorerNodeKind Kind { get; }
 
@@ -100,6 +106,17 @@ public sealed partial class ProjectExplorerNode : ObservableObject
         }
     }
 
+    public async Task ReloadAsync()
+    {
+        if (_childrenLoader is null)
+        {
+            return;
+        }
+
+        IsLoaded = false;
+        await EnsureLoadedAsync();
+    }
+
     private async Task LoadChildrenCoreAsync()
     {
         if (IsLoaded || _childrenLoader is null)
@@ -132,12 +149,9 @@ public sealed partial class ProjectExplorerNode : ObservableObject
         => new(
             ExplorerNodeKind.Project,
             workspace.Project.Name,
-            workspace.Project.SeriesName,
-            workspace.RootPath,
-            childrenLoader: childrenLoader)
-        {
-            IsExpanded = true
-        };
+            null,
+            workspace.SourceRoot,
+            childrenLoader: childrenLoader);
 
     public static ProjectExplorerNode CreateChaptersFolder(
         string fullPath,
@@ -147,6 +161,19 @@ public sealed partial class ProjectExplorerNode : ObservableObject
             "chapters",
             null,
             fullPath,
+            childrenLoader: childrenLoader);
+
+    public static ProjectExplorerNode CreateChapter(
+        string folderName,
+        Chapter? chapter,
+        string fullPath,
+        Func<ProjectExplorerNode, Task<IReadOnlyList<ProjectExplorerNode>>>? childrenLoader = null)
+        => new(
+            ExplorerNodeKind.Chapter,
+            chapter is null ? folderName : $"Chapter {chapter.Number}",
+            chapter?.Title,
+            fullPath,
+            chapter: chapter,
             childrenLoader: childrenLoader);
 
     public static ProjectExplorerNode CreateChapter(
@@ -174,7 +201,7 @@ public sealed partial class ProjectExplorerNode : ObservableObject
             chapter: chapter,
             childrenLoader: childrenLoader);
 
-    public static ProjectExplorerNode CreatePage(Chapter chapter, PageWorkspace page)
+    public static ProjectExplorerNode CreatePage(Chapter? chapter, PageWorkspace page)
         => new(
             ExplorerNodeKind.Page,
             Path.GetFileName(page.Page.RelativePath),
@@ -201,26 +228,38 @@ public sealed partial class ProjectExplorerNode : ObservableObject
             fullPath);
 
     public static ProjectExplorerNode CreateProjectDatabase(string fullPath)
+        => CreateProjectDatabase(Path.GetFileName(fullPath), fullPath);
+
+    public static ProjectExplorerNode CreateProjectDatabase(string fileName, string fullPath)
         => new(
             ExplorerNodeKind.ProjectDatabase,
-            PathSafety.DatabaseFileName,
+            fileName,
             null,
             fullPath);
 
     public static ProjectExplorerNode CreateGenericFolder(
         string folderName,
         string fullPath,
-        Func<ProjectExplorerNode, Task<IReadOnlyList<ProjectExplorerNode>>>? childrenLoader = null)
+        Func<ProjectExplorerNode, Task<IReadOnlyList<ProjectExplorerNode>>>? childrenLoader = null,
+        bool isChapterCandidate = false)
         => new(
             ExplorerNodeKind.GenericFolder,
             folderName,
             null,
             fullPath,
-            childrenLoader: childrenLoader);
+            childrenLoader: childrenLoader,
+            isChapterCandidate: isChapterCandidate);
 
     public static ProjectExplorerNode CreateGenericFile(string fileName, string fullPath)
         => new(
             ExplorerNodeKind.GenericFile,
+            fileName,
+            null,
+            fullPath);
+
+    public static ProjectExplorerNode CreateGenericImageFile(string fileName, string fullPath)
+        => new(
+            ExplorerNodeKind.GenericImageFile,
             fileName,
             null,
             fullPath);

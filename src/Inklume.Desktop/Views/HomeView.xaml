@@ -21,8 +21,8 @@
                 <ui:Button Content="New Project" Icon="{ui:SymbolIcon Add24}"
                            Command="{Binding NewProjectCommand}" Appearance="Primary"
                            Style="{DynamicResource SidebarActionButtonStyle}" Margin="0,0,0,10" />
-                <ui:Button Grid.Row="1" Content="Open Project" Icon="{ui:SymbolIcon FolderOpen24}"
-                           Command="{Binding OpenProjectCommand}" Appearance="Secondary"
+                <ui:Button Grid.Row="1" Content="Open Folder" Icon="{ui:SymbolIcon FolderOpen24}"
+                           Command="{Binding OpenFolderCommand}" Appearance="Secondary"
                            Style="{DynamicResource SidebarActionButtonStyle}" />
                 <StackPanel Grid.Row="2" Margin="0,30,0,0">
                     <TextBlock Text="WORKSPACE" Style="{DynamicResource CaptionTextStyle}" Margin="6,0,0,8" />
@@ -83,7 +83,7 @@
                             </TextBlock>
                             <TextBlock Text="AI Comic Localization Studio" FontSize="16"
                                        Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,7,0,0" />
-                            <TextBlock Text="Create a workspace or open an existing project to organize local comic chapters."
+                            <TextBlock Text="Open an existing comic folder or create a new workspace to organize local comic chapters."
                                        Style="{DynamicResource SecondaryTextStyle}" Margin="0,5,0,0"
                                        TextWrapping="Wrap" />
                         </StackPanel>
@@ -91,7 +91,7 @@
                 </Border>
 
                 <DockPanel Margin="0,0,0,12">
-                    <TextBlock Text="Recent Projects" Style="{DynamicResource SectionTitleTextStyle}" />
+                    <TextBlock Text="Recent Folders" Style="{DynamicResource SectionTitleTextStyle}" />
                     <TextBlock DockPanel.Dock="Right" Text="Current session" Style="{DynamicResource CaptionTextStyle}"
                                HorizontalAlignment="Right" />
                 </DockPanel>
@@ -109,9 +109,9 @@
                                     </Style.Triggers>
                                 </Style>
                             </StackPanel.Style>
-                            <TextBlock Text="No recent projects" FontSize="17" FontWeight="SemiBold"
+                            <TextBlock Text="No recent folders" FontSize="17" FontWeight="SemiBold"
                                        HorizontalAlignment="Center" Foreground="{DynamicResource TextPrimaryBrush}" />
-                            <TextBlock Text="Create or open a project to get started."
+                            <TextBlock Text="Open a folder or create a project to get started."
                                        Style="{DynamicResource SecondaryTextStyle}" Margin="0,6,0,0" />
                         </StackPanel>
 
@@ -142,7 +142,7 @@
                                             <TextBlock Grid.Row="1" Text="{Binding SeriesName}"
                                                        Style="{DynamicResource SecondaryTextStyle}" Margin="0,4,0,0"
                                                        TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Grid.Row="2" Text="{Binding RootPath}"
+                                            <TextBlock Grid.Row="2" Text="{Binding SourceRoot}"
                                                        Style="{DynamicResource CaptionTextStyle}" Margin="0,14,0,0"
                                                        TextWrapping="Wrap" MaxHeight="34" />
                                             <TextBlock Grid.Row="3" Text="Opened this session"
@@ -163,22 +163,22 @@
                 <TextBlock Text="Getting Started" Style="{DynamicResource SectionTitleTextStyle}" Margin="0,0,0,14" />
                 <Border Style="{DynamicResource PanelBorderStyle}" Padding="16" Margin="0,0,0,12">
                     <StackPanel>
-                        <TextBlock Text="Create a project" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}" />
-                        <TextBlock Text="Choose a local folder and define the project and series names."
+                        <TextBlock Text="Open a comic folder" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}" />
+                        <TextBlock Text="Select any existing comic or series folder. INKLUME leaves your files untouched."
                                    Style="{DynamicResource SecondaryTextStyle}" TextWrapping="Wrap" Margin="0,6,0,0" />
                     </StackPanel>
                 </Border>
                 <Border Style="{DynamicResource PanelBorderStyle}" Padding="16" Margin="0,0,0,12">
                     <StackPanel>
-                        <TextBlock Text="Open an existing workspace" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}" />
-                        <TextBlock Text="Select a valid INKLUME project folder to continue working."
+                        <TextBlock Text="Create a project" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}" />
+                        <TextBlock Text="Choose a local source folder and define the project and series names."
                                    Style="{DynamicResource SecondaryTextStyle}" TextWrapping="Wrap" Margin="0,6,0,0" />
                     </StackPanel>
                 </Border>
                 <Border Style="{DynamicResource PanelBorderStyle}" Padding="16">
                     <StackPanel>
-                        <TextBlock Text="Local and private" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}" />
-                        <TextBlock Text="Project metadata and imported chapter images remain in the selected workspace."
+                        <TextBlock Text="Folder-first and private" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}" />
+                        <TextBlock Text="Source images are never modified. Workspace metadata is stored externally in AppData."
                                    Style="{DynamicResource SecondaryTextStyle}" TextWrapping="Wrap" Margin="0,6,0,0" />
                     </StackPanel>
                 </Border>

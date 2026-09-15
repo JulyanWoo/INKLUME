@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Windows.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -19,9 +20,16 @@ public sealed partial class VisualEditorViewModel : ObservableObject
     private readonly TextRegionService _textRegionService;
     private readonly IPagePreviewLoader _previewLoader;
     private ViewportTransform? _viewportTransform;
+    private int _genericImageWidth;
+    private int _genericImageHeight;
+    private double _viewportWidth;
+    private double _viewportHeight;
+    private string? _genericImageFilePath;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasPage))]
+    [NotifyPropertyChangedFor(nameof(IsEditingEnabled))]
+    [NotifyPropertyChangedFor(nameof(IsGenericPreview))]
     [NotifyPropertyChangedFor(nameof(ImageWidth))]
     [NotifyPropertyChangedFor(nameof(ImageHeight))]
     private PageWorkspace? _selectedPage;
@@ -60,14 +68,18 @@ public sealed partial class VisualEditorViewModel : ObservableObject
         _textRegionService = textRegionService;
         _previewLoader = previewLoader;
         SelectToolCommand = new RelayCommand(() => SelectedTool = VisualEditorTool.Select);
-        RectangleToolCommand = new RelayCommand(() => SelectedTool = VisualEditorTool.RectangleRegion);
-        PolygonToolCommand = new RelayCommand(() => SelectedTool = VisualEditorTool.PolygonRegion);
+        RectangleToolCommand = new RelayCommand(
+            () => SelectedTool = VisualEditorTool.RectangleRegion,
+            () => IsEditingEnabled);
+        PolygonToolCommand = new RelayCommand(
+            () => SelectedTool = VisualEditorTool.PolygonRegion,
+            () => IsEditingEnabled);
         ZoomInCommand = new RelayCommand(ZoomIn, () => ZoomScale < ViewportTransform.MaximumZoom);
         ZoomOutCommand = new RelayCommand(ZoomOut, () => ZoomScale > ViewportTransform.MinimumInteractiveZoom);
         ResetZoomCommand = new RelayCommand(ResetZoom, () => _viewportTransform is not null);
         FitToViewCommand = new RelayCommand(FitToView, () => _viewportTransform is not null);
         DeleteSelectedRegionCommand = new AsyncRelayCommand(
-            DeleteSelectedRegionAsync, () => SelectedRegion is not null);
+            DeleteSelectedRegionAsync, () => IsEditingEnabled && SelectedRegion is not null);
     }
 
     public ObservableCollection<TextRegion> TextRegions { get; } = [];
@@ -79,6 +91,12 @@ public sealed partial class VisualEditorViewModel : ObservableObject
     public bool HasPage => SelectedPage is not null;
 
     public bool HasPreview => Preview is not null;
+
+    public bool IsEditingEnabled => SelectedPage is not null;
+
+    public bool IsGenericPreview => _genericImageFilePath is not null && SelectedPage is null;
+
+    public string? GenericImageFilePath => _genericImageFilePath;
 
     public bool HasSelectedRegion => SelectedRegion is not null;
 
@@ -95,9 +113,9 @@ public sealed partial class VisualEditorViewModel : ObservableObject
 
     public ImageSource? PreviewImage => Preview?.Image;
 
-    public double ImageWidth => SelectedPage?.Page.PixelWidth ?? 0;
+    public double ImageWidth => SelectedPage?.Page.PixelWidth ?? _genericImageWidth;
 
-    public double ImageHeight => SelectedPage?.Page.PixelHeight ?? 0;
+    public double ImageHeight => SelectedPage?.Page.PixelHeight ?? _genericImageHeight;
 
     public int DecodedPixelWidth => Preview?.DecodedPixelWidth ?? 0;
 
@@ -145,39 +163,92 @@ public sealed partial class VisualEditorViewModel : ObservableObject
             _workspace, resolved.Page.Id, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
 
+        _genericImageFilePath = null;
+        _genericImageWidth = 0;
+        _genericImageHeight = 0;
         SelectedPage = resolved;
         Preview = preview;
+        _viewportTransform = (_viewportWidth > 0 && _viewportHeight > 0 && rawPixelWidth > 0 && rawPixelHeight > 0)
+            ? ViewportTransform.Fit(rawPixelWidth, rawPixelHeight, _viewportWidth, _viewportHeight)
+            : null;
         TextRegions.Clear();
         foreach (TextRegion region in regions)
         {
             TextRegions.Add(region);
         }
 
-        _viewportTransform = null;
+        OnPropertyChanged(nameof(GenericImageFilePath));
+        OnPropertyChanged(nameof(IsGenericPreview));
         NotifyViewportChanged();
         StatusMessage = $"Page {resolved.Page.Number} loaded.";
         return resolved;
+    }
+
+    public async Task LoadGenericImageAsync(
+        string filePath,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
+        ClearTransientState();
+        ErrorMessage = string.Empty;
+        StatusMessage = $"Loading image {Path.GetFileName(filePath)}...";
+
+        PagePreview preview = await _previewLoader.LoadImageAsync(filePath, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        SelectedPage = null;
+        _genericImageFilePath = filePath;
+        _genericImageWidth = preview.RawPixelWidth;
+        _genericImageHeight = preview.RawPixelHeight;
+        Preview = preview;
+        _viewportTransform = (_viewportWidth > 0 && _viewportHeight > 0 && preview.RawPixelWidth > 0 && preview.RawPixelHeight > 0)
+            ? ViewportTransform.Fit(preview.RawPixelWidth, preview.RawPixelHeight, _viewportWidth, _viewportHeight)
+            : null;
+        TextRegions.Clear();
+
+        OnPropertyChanged(nameof(GenericImageFilePath));
+        OnPropertyChanged(nameof(IsGenericPreview));
+        OnPropertyChanged(nameof(IsEditingEnabled));
+        OnPropertyChanged(nameof(ImageWidth));
+        OnPropertyChanged(nameof(ImageHeight));
+        RectangleToolCommand.NotifyCanExecuteChanged();
+        PolygonToolCommand.NotifyCanExecuteChanged();
+        DeleteSelectedRegionCommand.NotifyCanExecuteChanged();
+
+        NotifyViewportChanged();
+        StatusMessage = $"Image {Path.GetFileName(filePath)} loaded (read-only preview).";
     }
 
     public void Clear()
     {
         ClearTransientState();
         SelectedPage = null;
+        _genericImageFilePath = null;
+        _genericImageWidth = 0;
+        _genericImageHeight = 0;
         Preview = null;
         TextRegions.Clear();
         ErrorMessage = string.Empty;
         StatusMessage = string.Empty;
+        OnPropertyChanged(nameof(GenericImageFilePath));
+        OnPropertyChanged(nameof(IsGenericPreview));
+        OnPropertyChanged(nameof(IsEditingEnabled));
+        RectangleToolCommand.NotifyCanExecuteChanged();
+        PolygonToolCommand.NotifyCanExecuteChanged();
+        DeleteSelectedRegionCommand.NotifyCanExecuteChanged();
         _viewportTransform = null;
         NotifyViewportChanged();
     }
 
     public void ConfigureViewport(double width, double height, bool fitIfUninitialized)
     {
-        if (!HasPage || width <= 0 || height <= 0)
+        if ((!HasPage && !IsGenericPreview) || width <= 0 || height <= 0)
         {
             return;
         }
 
+        _viewportWidth = width;
+        _viewportHeight = height;
         _viewportTransform = _viewportTransform is null
             ? ViewportTransform.Fit(ImageWidth, ImageHeight, width, height)
             : _viewportTransform.Resize(width, height);
@@ -191,30 +262,35 @@ public sealed partial class VisualEditorViewModel : ObservableObject
 
     public void ZoomAt(ViewportPoint cursor, double wheelDelta)
     {
-        if (_viewportTransform is null)
+        ViewportTransform? transform = EnsureViewportTransform();
+        if (transform is null)
         {
             return;
         }
 
         double factor = wheelDelta > 0 ? 1.1 : 1 / 1.1;
-        _viewportTransform = _viewportTransform.ZoomAt(cursor, _viewportTransform.Zoom * factor);
+        _viewportTransform = transform.ZoomAt(cursor, transform.Zoom * factor);
         NotifyViewportChanged();
     }
 
     public void PanBy(double horizontalDelta, double verticalDelta)
     {
-        if (_viewportTransform is null)
+        ViewportTransform? transform = EnsureViewportTransform();
+        if (transform is null)
         {
             return;
         }
 
-        _viewportTransform = _viewportTransform.PanBy(horizontalDelta, verticalDelta);
+        _viewportTransform = transform.PanBy(horizontalDelta, verticalDelta);
         NotifyViewportChanged();
     }
 
     public ImagePoint ViewportToImage(ViewportPoint point)
-        => _viewportTransform?.ViewportToImage(point)
+    {
+        ViewportTransform? transform = EnsureViewportTransform();
+        return transform?.ViewportToImage(point)
             ?? throw new InvalidOperationException("The visual editor viewport has not been initialized.");
+    }
 
     public async Task<TextRegion?> CreateRectangleAsync(
         ImagePoint first,
@@ -328,48 +404,71 @@ public sealed partial class VisualEditorViewModel : ObservableObject
         StatusMessage = $"Region {region.ReadingOrder} deleted.";
     }
 
+    private ViewportTransform? EnsureViewportTransform()
+    {
+        if (_viewportTransform is not null)
+        {
+            return _viewportTransform;
+        }
+
+        if ((!HasPage && !IsGenericPreview) || ImageWidth <= 0 || ImageHeight <= 0)
+        {
+            return null;
+        }
+
+        double width = _viewportWidth > 0 ? _viewportWidth : Math.Max(ImageWidth, 800);
+        double height = _viewportHeight > 0 ? _viewportHeight : Math.Max(ImageHeight, 600);
+        _viewportTransform = ViewportTransform.Fit(ImageWidth, ImageHeight, width, height);
+        NotifyViewportChanged();
+        return _viewportTransform;
+    }
+
     private void ZoomIn()
     {
-        if (_viewportTransform is null)
+        ViewportTransform? transform = EnsureViewportTransform();
+        if (transform is null)
         {
             return;
         }
 
         var center = new ViewportPoint(
-            _viewportTransform.ViewportWidth / 2,
-            _viewportTransform.ViewportHeight / 2);
-        _viewportTransform = _viewportTransform.ZoomAt(center, _viewportTransform.Zoom + 0.1);
+            transform.ViewportWidth / 2,
+            transform.ViewportHeight / 2);
+        _viewportTransform = transform.ZoomAt(center, transform.Zoom + 0.1);
         NotifyViewportChanged();
     }
 
     private void ZoomOut()
     {
-        if (_viewportTransform is null)
+        ViewportTransform? transform = EnsureViewportTransform();
+        if (transform is null)
         {
             return;
         }
 
         var center = new ViewportPoint(
-            _viewportTransform.ViewportWidth / 2,
-            _viewportTransform.ViewportHeight / 2);
-        _viewportTransform = _viewportTransform.ZoomAt(center, _viewportTransform.Zoom - 0.1);
+            transform.ViewportWidth / 2,
+            transform.ViewportHeight / 2);
+        _viewportTransform = transform.ZoomAt(center, transform.Zoom - 0.1);
         NotifyViewportChanged();
     }
 
     private void ResetZoom()
     {
-        if (_viewportTransform is null)
+        ViewportTransform? transform = EnsureViewportTransform();
+        if (transform is null)
         {
             return;
         }
 
-        _viewportTransform = _viewportTransform.Reset();
+        _viewportTransform = transform.Reset();
         NotifyViewportChanged();
     }
 
     private void FitToView()
     {
-        if (_viewportTransform is null)
+        ViewportTransform? transform = EnsureViewportTransform();
+        if (transform is null)
         {
             return;
         }
@@ -377,8 +476,8 @@ public sealed partial class VisualEditorViewModel : ObservableObject
         _viewportTransform = ViewportTransform.Fit(
             ImageWidth,
             ImageHeight,
-            _viewportTransform.ViewportWidth,
-            _viewportTransform.ViewportHeight);
+            transform.ViewportWidth,
+            transform.ViewportHeight);
         NotifyViewportChanged();
     }
 

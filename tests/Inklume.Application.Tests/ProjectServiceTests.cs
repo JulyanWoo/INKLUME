@@ -22,7 +22,7 @@ public sealed class ProjectServiceTests
         Assert.Equal("Moonlight", workspace.Project.SeriesName);
         Assert.Equal(CurrentTime, workspace.Project.CreatedAt);
         Assert.Equal(CurrentTime, workspace.Project.UpdatedAt);
-        Assert.Equal(request.RootPath, workspace.RootPath);
+        Assert.Equal(request.SourceRoot, workspace.SourceRoot);
         Assert.Same(store.CreatedProject, workspace.Project);
         Assert.Equal(1, store.CreateCallCount);
     }
@@ -99,14 +99,14 @@ public sealed class ProjectServiceTests
     public async Task OpenAsync_ShouldReturnStoredWorkspace_WhenProjectExists()
     {
         var existingProject = new TranslationProject(Guid.NewGuid(), "Edition", "Series", CurrentTime, CurrentTime);
-        var existingWorkspace = new ProjectWorkspace(existingProject, "normalized project folder");
+        var existingWorkspace = new ProjectWorkspace(existingProject, "normalized project folder", "data root");
         var store = new RecordingProjectStore(existingWorkspace);
         var service = new ProjectService(store, new FixedTimeProvider(CurrentTime.AddDays(1)));
 
         ProjectWorkspace workspace = await service.OpenAsync("selected project folder", TestContext.Current.CancellationToken);
 
         Assert.Same(existingWorkspace, workspace);
-        Assert.Equal("selected project folder", store.RequestedRootPath);
+        Assert.Equal("selected project folder", store.RequestedSourceRoot);
         Assert.Equal(CurrentTime, workspace.Project.UpdatedAt);
         Assert.Equal(1, store.OpenCallCount);
         Assert.Equal(0, store.CreateCallCount);
@@ -117,7 +117,7 @@ public sealed class ProjectServiceTests
     {
         using var cancellation = new CancellationTokenSource();
         var project = new TranslationProject(Guid.NewGuid(), "Project", "Series", CurrentTime, CurrentTime);
-        var store = new RecordingProjectStore(new ProjectWorkspace(project, "selected folder"));
+        var store = new RecordingProjectStore(new ProjectWorkspace(project, "selected folder", "data root"));
         var service = new ProjectService(store, new FixedTimeProvider(CurrentTime));
 
         await service.OpenAsync("selected folder", cancellation.Token);
@@ -178,7 +178,7 @@ public sealed class ProjectServiceTests
     {
         public TranslationProject? CreatedProject { get; private set; }
 
-        public string? RequestedRootPath { get; private set; }
+        public string? RequestedSourceRoot { get; private set; }
 
         public CancellationToken ReceivedCancellationToken { get; private set; }
 
@@ -190,20 +190,20 @@ public sealed class ProjectServiceTests
 
         public Task<ProjectWorkspace> CreateAsync(
             TranslationProject project,
-            string rootPath,
+            string sourceRoot,
             CancellationToken cancellationToken)
         {
             CreateCallCount++;
             CreatedProject = project;
-            RequestedRootPath = rootPath;
+            RequestedSourceRoot = sourceRoot;
             ReceivedCancellationToken = cancellationToken;
-            return Task.FromResult(new ProjectWorkspace(project, rootPath));
+            return Task.FromResult(new ProjectWorkspace(project, sourceRoot, $"{sourceRoot}_data"));
         }
 
-        public Task<ProjectWorkspace> OpenAsync(string rootPath, CancellationToken cancellationToken)
+        public Task<ProjectWorkspace> OpenAsync(string sourceRoot, CancellationToken cancellationToken)
         {
             OpenCallCount++;
-            RequestedRootPath = rootPath;
+            RequestedSourceRoot = sourceRoot;
             ReceivedCancellationToken = cancellationToken;
 
             if (Failure is not null)
