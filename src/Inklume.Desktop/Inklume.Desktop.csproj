@@ -11,5 +11,6 @@
     <ItemGroup>
         <ProjectReference Include="..\Inklume.Application\Inklume.Application.csproj" />
         <ProjectReference Include="..\Inklume.Infrastructure\Inklume.Infrastructure.csproj" />
+        <ProjectReference Include="..\Inklume.Imaging\Inklume.Imaging.csproj" />
     </ItemGroup>
 </Project>

@@ -10,7 +10,12 @@ public sealed record TextRegion
         TextRegionRole role,
         TextContainerType containerType,
         DateTimeOffset createdAt,
-        DateTimeOffset updatedAt)
+        DateTimeOffset updatedAt,
+        TextRegionOrigin origin = TextRegionOrigin.Manual,
+        string? reviewedText = null,
+        TextRegionReviewStatus reviewStatus = TextRegionReviewStatus.Pending,
+        DateTimeOffset? reviewedAt = null,
+        DateTimeOffset? userModifiedAt = null)
     {
         if (id == Guid.Empty)
         {
@@ -38,6 +43,16 @@ public sealed record TextRegion
             throw new ArgumentOutOfRangeException(nameof(containerType), "The text container type is not supported.");
         }
 
+        if (!Enum.IsDefined(origin))
+        {
+            throw new ArgumentOutOfRangeException(nameof(origin), "The text region origin is not supported.");
+        }
+
+        if (!Enum.IsDefined(reviewStatus))
+        {
+            throw new ArgumentOutOfRangeException(nameof(reviewStatus), "The text region review status is not supported.");
+        }
+
         if (updatedAt < createdAt)
         {
             throw new ArgumentException("The update timestamp must not precede creation.", nameof(updatedAt));
@@ -51,6 +66,11 @@ public sealed record TextRegion
         ContainerType = containerType;
         CreatedAt = createdAt.ToUniversalTime();
         UpdatedAt = updatedAt.ToUniversalTime();
+        Origin = origin;
+        ReviewedText = reviewedText;
+        ReviewStatus = reviewStatus;
+        ReviewedAt = reviewedAt?.ToUniversalTime();
+        UserModifiedAt = userModifiedAt?.ToUniversalTime();
     }
 
     public Guid Id { get; }
@@ -65,13 +85,95 @@ public sealed record TextRegion
 
     public TextContainerType ContainerType { get; }
 
+    public TextRegionOrigin Origin { get; }
+
     public DateTimeOffset CreatedAt { get; }
 
     public DateTimeOffset UpdatedAt { get; }
 
+    public string? ReviewedText { get; }
+
+    public TextRegionReviewStatus ReviewStatus { get; }
+
+    public DateTimeOffset? ReviewedAt { get; }
+
+    public DateTimeOffset? UserModifiedAt { get; }
+
     public TextRegion WithClassification(
         TextRegionRole role,
         TextContainerType containerType,
+        DateTimeOffset updatedAt,
+        DateTimeOffset? userModifiedAt = null)
+        => new(
+            Id,
+            PageId,
+            Geometry,
+            ReadingOrder,
+            role,
+            containerType,
+            CreatedAt,
+            updatedAt,
+            Origin,
+            ReviewedText,
+            ReviewStatus,
+            ReviewedAt,
+            userModifiedAt ?? UserModifiedAt);
+
+    public TextRegion WithOrigin(
+        TextRegionOrigin origin,
         DateTimeOffset updatedAt)
-        => new(Id, PageId, Geometry, ReadingOrder, role, containerType, CreatedAt, updatedAt);
+        => new(
+            Id,
+            PageId,
+            Geometry,
+            ReadingOrder,
+            Role,
+            ContainerType,
+            CreatedAt,
+            updatedAt,
+            origin,
+            ReviewedText,
+            ReviewStatus,
+            ReviewedAt,
+            UserModifiedAt);
+
+    public TextRegion WithReview(
+        string? reviewedText,
+        TextRegionReviewStatus reviewStatus,
+        DateTimeOffset? reviewedAt,
+        DateTimeOffset? userModifiedAt,
+        DateTimeOffset updatedAt)
+        => new(
+            Id,
+            PageId,
+            Geometry,
+            ReadingOrder,
+            Role,
+            ContainerType,
+            CreatedAt,
+            updatedAt,
+            Origin,
+            reviewedText,
+            reviewStatus,
+            reviewedAt,
+            userModifiedAt ?? UserModifiedAt);
+
+    public TextRegion WithReadingOrder(
+        int readingOrder,
+        DateTimeOffset updatedAt,
+        DateTimeOffset? userModifiedAt = null)
+        => new(
+            Id,
+            PageId,
+            Geometry,
+            readingOrder,
+            Role,
+            ContainerType,
+            CreatedAt,
+            updatedAt,
+            Origin,
+            ReviewedText,
+            ReviewStatus,
+            ReviewedAt,
+            userModifiedAt ?? UserModifiedAt);
 }

@@ -19,6 +19,8 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly IApplicationDialogService _applicationDialogService;
     private readonly TextRegionService _textRegionService;
     private readonly IPagePreviewLoader _previewLoader;
+    private readonly OcrService? _ocrService;
+    private readonly TextRegionReviewService? _reviewService;
     private CancellationTokenSource? _operationCancellation;
     private bool _isClosing;
 
@@ -36,14 +38,22 @@ public sealed partial class MainViewModel : ObservableObject
     private WorkspaceViewModel? _workspace;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsBusy))]
     [NotifyPropertyChangedFor(nameof(IsCancellationAvailable))]
     [NotifyPropertyChangedFor(nameof(CurrentStatusMessage))]
     [NotifyPropertyChangedFor(nameof(HasStatusDetails))]
     [NotifyCanExecuteChangedFor(nameof(NewProjectCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenProjectCommand))]
-    [NotifyCanExecuteChangedFor(nameof(OpenRecentProjectCommand))]
     private bool _isShellBusy;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CurrentStatusMessage))]
+    [NotifyPropertyChangedFor(nameof(HasStatusDetails))]
+    private string _progressMessage = string.Empty;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CurrentWarningMessage))]
+    [NotifyPropertyChangedFor(nameof(HasStatusDetails))]
+    private string _warningMessage = string.Empty;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CurrentStatusMessage))]
@@ -63,7 +73,9 @@ public sealed partial class MainViewModel : ObservableObject
         IProjectDialogService dialogService,
         IApplicationDialogService applicationDialogService,
         TextRegionService textRegionService,
-        IPagePreviewLoader previewLoader)
+        IPagePreviewLoader previewLoader,
+        OcrService? ocrService = null,
+        TextRegionReviewService? reviewService = null)
     {
         ArgumentNullException.ThrowIfNull(projectService);
         ArgumentNullException.ThrowIfNull(chapterService);
@@ -79,6 +91,8 @@ public sealed partial class MainViewModel : ObservableObject
         _applicationDialogService = applicationDialogService;
         _textRegionService = textRegionService;
         _previewLoader = previewLoader;
+        _ocrService = ocrService;
+        _reviewService = reviewService;
 
         NewProjectCommand = new AsyncRelayCommand(NewProjectAsync, CanBeginProjectOperation);
         OpenProjectCommand = new AsyncRelayCommand(OpenProjectAsync, CanBeginProjectOperation);
@@ -276,7 +290,9 @@ public sealed partial class MainViewModel : ObservableObject
                 _localChapterSourceProvider,
                 _dialogService,
                 _textRegionService,
-                _previewLoader);
+                _previewLoader,
+                _ocrService,
+                _reviewService);
             await workspace.InitializeAsync(cancellation.Token);
             AddRecentProject(projectWorkspace);
             Workspace = workspace;

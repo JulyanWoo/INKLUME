@@ -4,6 +4,7 @@
              xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
              xmlns:editor="clr-namespace:Inklume.Desktop.VisualEditor"
              Focusable="True"
+             FocusManager.IsFocusScope="True"
              Loaded="OnLoaded"
              Unloaded="OnUnloaded">
     <Grid Background="{DynamicResource EditorBackgroundBrush}">
@@ -58,13 +59,21 @@
                         </TextBlock.Style>
                     </TextBlock>
                 </StackPanel>
-                <ui:Button Grid.Column="2"
-                           Content="Fit"
-                           Appearance="Transparent"
-                           Command="{Binding FitToViewCommand}"
-                           ToolTip="Fit page to viewport"
-                           Padding="9,2"
-                           MinHeight="26" />
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <ui:Button Content="Run OCR"
+                               Appearance="Secondary"
+                               Command="{Binding RunPageOcrCommand}"
+                               ToolTip="Detect and recognize text on the current page"
+                               Padding="10,2"
+                               MinHeight="26"
+                               Margin="0,0,6,0" />
+                    <ui:Button Content="Fit"
+                               Appearance="Transparent"
+                               Command="{Binding FitToViewCommand}"
+                               ToolTip="Fit page to viewport"
+                               Padding="9,2"
+                               MinHeight="26" />
+                </StackPanel>
             </Grid>
         </Border>
 
@@ -89,7 +98,8 @@
                         <MatrixTransform x:Name="WorldTransform" />
                     </Grid.RenderTransform>
                     <Border Background="White">
-                        <Image Source="{Binding PreviewImage}"
+                        <Image x:Name="PageImage"
+                               Source="{Binding PreviewImage}"
                                Width="{Binding ImageWidth}"
                                Height="{Binding ImageHeight}"
                                Stretch="Fill"
@@ -140,6 +150,36 @@
                 </Border.Style>
                 <TextBlock Text="{Binding ErrorMessage}" Foreground="{DynamicResource ErrorBrush}"
                            TextWrapping="Wrap" TextAlignment="Center" />
+            </Border>
+
+            <Border HorizontalAlignment="Center" VerticalAlignment="Center" Padding="20,16"
+                    Background="{DynamicResource PanelBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="{StaticResource CornerMedium}" MinWidth="260">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsOcrRunning}" Value="True">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <StackPanel HorizontalAlignment="Center">
+                    <ProgressBar IsIndeterminate="True" Height="4" Margin="0,0,0,12" Width="200" />
+                    <TextBlock Text="{Binding OcrProgressMessage}"
+                               Style="{DynamicResource CaptionTextStyle}"
+                               HorizontalAlignment="Center"
+                               Margin="0,0,0,10" />
+                    <ui:Button Content="Cancel"
+                               Appearance="Secondary"
+                               Command="{Binding CancelOcrCommand}"
+                               HorizontalAlignment="Center"
+                               Padding="14,2"
+                               MinHeight="24" />
+                </StackPanel>
             </Border>
         </Grid>
     </Grid>

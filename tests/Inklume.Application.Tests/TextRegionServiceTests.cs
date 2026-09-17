@@ -141,5 +141,25 @@ public sealed class TextRegionServiceTests
             Regions.RemoveAll(region => region.Id == regionId);
             return Task.CompletedTask;
         }
+
+        public Task ReorderPageRegionsAsync(
+            ProjectWorkspace workspace,
+            Guid pageId,
+            IReadOnlyList<Guid> regionIdsInOrder,
+            DateTimeOffset updatedAt,
+            CancellationToken cancellationToken)
+        {
+            for (int i = 0; i < regionIdsInOrder.Count; i++)
+            {
+                Guid id = regionIdsInOrder[i];
+                int index = Regions.FindIndex(item => item.Id == id && item.PageId == pageId);
+                if (index >= 0)
+                {
+                    Regions[index] = Regions[index].WithReadingOrder(i + 1, updatedAt);
+                }
+            }
+
+            return Task.CompletedTask;
+        }
     }
 }

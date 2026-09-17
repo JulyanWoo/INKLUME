@@ -1,4 +1,5 @@
 using System.Globalization;
+using Inklume.Domain.TextRegions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -15,6 +16,8 @@ public sealed class ProjectDbContext(DbContextOptions<ProjectDbContext> options)
     internal DbSet<TextRegionMetadata> TextRegions => Set<TextRegionMetadata>();
 
     internal DbSet<TextRegionPointMetadata> TextRegionPoints => Set<TextRegionPointMetadata>();
+
+    internal DbSet<OcrRecognitionMetadata> OcrRecognitions => Set<OcrRecognitionMetadata>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -72,6 +75,7 @@ public sealed class ProjectDbContext(DbContextOptions<ProjectDbContext> options)
         region.ToTable("TextRegions", table =>
         {
             table.HasCheckConstraint("CK_TextRegions_ReadingOrder_Positive", "\"ReadingOrder\" > 0");
+            table.HasCheckConstraint("CK_TextRegions_ReviewStatus_Valid", "\"ReviewStatus\" IN (0, 1)");
         });
         region.HasKey(metadata => metadata.Id);
         region.Property(metadata => metadata.Id).ValueGeneratedNever();
@@ -80,6 +84,11 @@ public sealed class ProjectDbContext(DbContextOptions<ProjectDbContext> options)
         region.Property(metadata => metadata.ReadingOrder).IsRequired();
         region.Property(metadata => metadata.Role).IsRequired();
         region.Property(metadata => metadata.ContainerType).IsRequired();
+        region.Property(metadata => metadata.Origin).HasDefaultValue(TextRegionOrigin.Manual).IsRequired();
+        region.Property(metadata => metadata.ReviewedText);
+        region.Property(metadata => metadata.ReviewStatus).HasDefaultValue(TextRegionReviewStatus.Pending).IsRequired();
+        region.Property(metadata => metadata.ReviewedAt);
+        region.Property(metadata => metadata.UserModifiedAt);
         region.Property(metadata => metadata.CreatedAt).IsRequired();
         region.Property(metadata => metadata.UpdatedAt).IsRequired();
         region.HasIndex(metadata => new { metadata.PageId, metadata.ReadingOrder }).IsUnique();
@@ -95,5 +104,33 @@ public sealed class ProjectDbContext(DbContextOptions<ProjectDbContext> options)
         point.HasKey(metadata => new { metadata.TextRegionId, metadata.PointIndex });
         point.Property(metadata => metadata.X).IsRequired();
         point.Property(metadata => metadata.Y).IsRequired();
+
+        EntityTypeBuilder<OcrRecognitionMetadata> ocr = modelBuilder.Entity<OcrRecognitionMetadata>();
+        ocr.ToTable("OcrRecognitions", table =>
+        {
+            table.HasCheckConstraint(
+                "CK_OcrRecognitions_RecognitionConfidence_Range",
+                "\"RecognitionConfidence\" >= 0.0 AND \"RecognitionConfidence\" <= 1.0");
+            table.HasCheckConstraint(
+                "CK_OcrRecognitions_DetectionConfidence_Range",
+                "\"DetectionConfidence\" IS NULL OR (\"DetectionConfidence\" >= 0.0 AND \"DetectionConfidence\" <= 1.0)");
+        });
+        ocr.HasKey(metadata => metadata.Id);
+        ocr.Property(metadata => metadata.Id).ValueGeneratedNever();
+        ocr.Property(metadata => metadata.TextRegionId).IsRequired();
+        ocr.Property(metadata => metadata.Text).IsRequired();
+        ocr.Property(metadata => metadata.RecognitionConfidence).IsRequired();
+        ocr.Property(metadata => metadata.DetectionConfidence);
+        ocr.Property(metadata => metadata.EngineName).HasMaxLength(100).IsRequired();
+        ocr.Property(metadata => metadata.EngineVersion).HasMaxLength(50).IsRequired();
+        ocr.Property(metadata => metadata.DetectionModel).HasMaxLength(100).IsRequired();
+        ocr.Property(metadata => metadata.RecognitionModel).HasMaxLength(100).IsRequired();
+        ocr.Property(metadata => metadata.ModelProfile).HasMaxLength(100).IsRequired();
+        ocr.Property(metadata => metadata.CreatedAt).IsRequired();
+        ocr.Property(metadata => metadata.UpdatedAt).IsRequired();
+        ocr.HasIndex(metadata => metadata.TextRegionId).IsUnique();
+        ocr.HasOne<TextRegionMetadata>().WithOne()
+            .HasForeignKey<OcrRecognitionMetadata>(metadata => metadata.TextRegionId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }

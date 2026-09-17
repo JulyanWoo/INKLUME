@@ -218,6 +218,97 @@ accepts an ordered collection of named image streams, allowing later legitimate
 sources to reuse the same validation, copy, hash, persistence, and progress behavior.
 No website or browser source is implemented.
 
-Text regions are manual metadata in this version. OCR, AI providers, translation,
-browser integrations, image processing, cleanup, redraw, background jobs, exports,
-and installers belong to later stages.
+Text regions can be manually created or automatically detected through OCR.
+Automatic detection marks regions with Origin = OcrDetection, while manual annotations
+retain Origin = Manual. Re-running OCR on a page atomically replaces only automatic detections,
+strictly preserving manual regions and their annotations. Fallback OCR is also available on
+manually drawn regions via "Recognize Region".
+Translation, browser integrations, image inpainting, cleanup, redraw, typesetting,
+background jobs, exports, and installers belong to later stages.
+
+## Text detection and OCR foundation
+
+INKLUME includes a local, offline OCR engine based on PaddleOCR running in a separate,
+long-lived Python worker process.
+
+### Architecture
+
+```text
+Visual Editor / Inspector (WPF)
+    ↓
+OcrService (Inklume.Application)
+    ↓
+PaddleOcrProvider (Inklume.Imaging)
+    ↓
+OcrWorkerClient (JSON Lines via stdin/stdout)
+    ↓
+Python Worker (tools/ocr/worker/main.py)
+    ↓
+PaddleOCR 3.7.0 (PP-OCRv5_mobile_det + korean_PP-OCRv5_mobile_rec)
+```
+
+- **Runtime isolation**: PaddleOCR and Python are completely isolated behind the `IOcrProvider` interface in `Inklume.Imaging`. Domain, Application, Desktop, and Infrastructure contain zero references to Python or PaddleOCR.
+- **Model profile**: Detection uses `PP-OCRv5_mobile_det` and recognition uses `korean_PP-OCRv5_mobile_rec`. Supports Korean, English, and numeric text.
+- **RAW coordinate space**: All bounding polygons and coordinates are preserved strictly in RAW image pixels `(0,0)` top-left, independent of viewport zoom or preview scaling.
+- **Tiling**: Long manhwa strips (> 4000px height) are automatically tiled vertically with overlap and IoU deduplication to maintain high detection accuracy.
+- **Source immutability**: Source images under `SourceRoot` are strictly read-only and never modified. SHA-256 hashes are verified before and after OCR.
+- **Worker lifecycle**: The Python worker starts lazily on the first OCR request, initializes models once, handles multiple sequential requests, and shuts down gracefully when INKLUME exits.
+- **No API keys or cloud dependencies**: Normal inference runs completely locally on CPU without network calls. Models are stored in `%LOCALAPPDATA%\INKLUME\Models\OCR\`.
+
+### Offline testing guarantee
+
+`dotnet test` **never** starts the Python worker, never loads ML models, and never connects to the internet. Standard unit and integration tests use deterministic test doubles and fake providers.
+
+### Developer OCR setup and smoke testing
+
+To set up the project-local Python environment:
+
+```powershell
+. .\scripts\Enter-Development.ps1
+.\scripts\Setup-Ocr.ps1
+```
+
+This creates a virtual environment in `.local\ocr\.venv` and installs the exact pinned dependencies (`paddlepaddle==3.3.1`, `paddleocr==3.7.0`). Global Python is never modified.
+
+To run the opt-in real OCR smoke test against copyright-safe synthetic fixtures:
+
+```powershell
+. .\scripts\Enter-Development.ps1
+.\scripts\Smoke-Ocr.ps1
+```
+
+## OCR review, source text correction, and region semantics
+
+Phase 6 implements the human review layer between raw OCR machine output and future translation.
+
+### Human review workflow
+
+```text
+RAW IMAGE
+    ↓
+OCR Detection & Recognition
+    ↓
+Raw OCR Output (OcrRecognition.Text — Read-Only Machine Provenance)
+    ↓
+Human Review (TextRegion.ReviewedText — Editable Working Text)
+    ↓
+Reviewed Source Text & Semantic Metadata (Role, ContainerType, ReadingOrder, ReviewStatus)
+    ↓
+Effective Source Text (Canonical Input for Future Translation)
+```
+
+- **Machine provenance vs. Human corrections**: `OcrRecognition.Text` is strictly read-only machine provenance and is never overwritten by user edits. User corrections are stored on `TextRegion.ReviewedText`.
+- **Null vs. Empty semantics**: `ReviewedText == null` represents "no human override" (falls back to raw OCR). An intentional empty string `""` overrides OCR with empty text.
+- **Effective source text rule**: The canonical effective source text exposed to future translation is `ReviewedText ?? RawOcrText ?? null`. Manual regions without OCR can receive reviewed text directly.
+- **Review status**: Regions are marked `Pending` (0) or `Reviewed` (1). Page review progress (`Reviewed N / M`) is derived dynamically from persisted state without storing redundant aggregate counters.
+- **User modification tracking**: An explicit `UserModifiedAt` timestamp records user edits (text changes, classification, status changes, and reordering). Untouched automatic detections retain `UserModifiedAt = null`.
+- **Manual semantic classification**: Regions can be classified manually into `TextRegionRole` (Unknown, Dialogue, Thought, Narration, Sfx, System, Signage, Caption, Other) and `TextContainerType` (Unknown, None, SpeechBubble, ThoughtBubble, NarrationBox, SystemPanel, DecorativeShape, Other). No automated AI inference or heuristic guessing is applied.
+- **Safe atomic reading order**: Reading order can be adjusted using Move Up and Move Down actions. Updates are executed inside an atomic transaction with a two-phase positive-offset strategy, preventing collisions with `(PageId, ReadingOrder)` unique constraints while respecting `ReadingOrder > 0` check constraints.
+- **Reading order navigation**: The Visual Editor supports cycling through regions on the active page via Previous Region and Next Region navigation.
+- **Safe OCR rerun**:
+  - **Region OCR rerun**: Re-running OCR on a single region replaces `OcrRecognition` but strictly preserves `ReviewedText`, `ReviewStatus`, `ReviewedAt`, `UserModifiedAt`, `Role`, `ContainerType`, `ReadingOrder`, and geometry.
+  - **Page OCR rerun**: Re-running Page OCR replaces only untouched automatic detections. Regions with `Origin == Manual` or with user modifications (`UserModifiedAt != null`, `ReviewStatus == Reviewed`, `ReviewedText != null`, or non-unknown Role/Container) are strictly protected.
+  - **Overlap suppression**: When new OCR detections overlap an existing protected region with bounding $\text{IoU} \ge 0.50$, duplicate automatic regions are suppressed.
+- **Editor SRP refactoring**: Region review presentation and actions are encapsulated in a focused `RegionReviewViewModel` child component, keeping `VisualEditorViewModel` cohesive.
+- **Keyboard safety**: When editing reviewed text in the Inspector, text editing shortcuts (Delete, Backspace, Ctrl+A, Ctrl+C, Ctrl+V, Enter) function standardly within the TextBox without triggering canvas commands like Delete Region. Ctrl+Enter saves the active text draft.
+

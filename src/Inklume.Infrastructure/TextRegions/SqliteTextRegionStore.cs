@@ -104,8 +104,62 @@ public sealed class SqliteTextRegionStore : ITextRegionStore
 
         metadata.Role = region.Role;
         metadata.ContainerType = region.ContainerType;
+        metadata.ReviewedText = region.ReviewedText;
+        metadata.ReviewStatus = region.ReviewStatus;
+        metadata.ReviewedAt = region.ReviewedAt;
+        metadata.UserModifiedAt = region.UserModifiedAt;
         metadata.UpdatedAt = region.UpdatedAt;
         await SaveChangesAsync(context, "The text region could not be updated.", cancellationToken);
+    }
+
+    public async Task ReorderPageRegionsAsync(
+        ProjectWorkspace workspace,
+        Guid pageId,
+        IReadOnlyList<Guid> orderedRegionIds,
+        DateTimeOffset userModifiedAt,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(orderedRegionIds);
+        ProjectWorkspace verified = await VerifyWorkspaceAsync(workspace, cancellationToken);
+        await using ProjectDbContext context = CreateContext(verified, readOnly: false);
+        await SqliteProjectPersistence.OpenConnectionAsync(context, cancellationToken);
+        await RequirePageAsync(context, verified.Project.Id, pageId, cancellationToken);
+
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+
+        List<TextRegionMetadata> regions = await context.TextRegions
+            .Where(r => r.PageId == pageId)
+            .ToListAsync(cancellationToken);
+
+        var regionMap = regions.ToDictionary(r => r.Id);
+
+        // Step 1: Assign temporary positive offset reading orders to avoid unique index violation on (PageId, ReadingOrder)
+        // while satisfying CK_TextRegions_ReadingOrder_Positive ("ReadingOrder" > 0)
+        int tempOrder = 1_000_000;
+        foreach (Guid regionId in orderedRegionIds)
+        {
+            if (regionMap.TryGetValue(regionId, out TextRegionMetadata? meta))
+            {
+                meta.ReadingOrder = tempOrder++;
+            }
+        }
+
+        await context.SaveChangesAsync(cancellationToken);
+
+        // Step 2: Assign final sequence 1..N and update UserModifiedAt
+        int order = 1;
+        foreach (Guid regionId in orderedRegionIds)
+        {
+            if (regionMap.TryGetValue(regionId, out TextRegionMetadata? meta))
+            {
+                meta.ReadingOrder = order++;
+                meta.UserModifiedAt = userModifiedAt;
+                meta.UpdatedAt = userModifiedAt;
+            }
+        }
+
+        await context.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
     }
 
     public async Task DeleteAsync(
@@ -212,6 +266,11 @@ public sealed class SqliteTextRegionStore : ITextRegionStore
             ReadingOrder = region.ReadingOrder,
             Role = region.Role,
             ContainerType = region.ContainerType,
+            Origin = region.Origin,
+            ReviewedText = region.ReviewedText,
+            ReviewStatus = region.ReviewStatus,
+            ReviewedAt = region.ReviewedAt,
+            UserModifiedAt = region.UserModifiedAt,
             CreatedAt = region.CreatedAt,
             UpdatedAt = region.UpdatedAt,
             Points = region.Geometry.Points.Select((point, index) => new TextRegionPointMetadata
@@ -236,7 +295,8 @@ public sealed class SqliteTextRegionStore : ITextRegionStore
         };
         return new TextRegion(
             metadata.Id, metadata.PageId, geometry, metadata.ReadingOrder, metadata.Role,
-            metadata.ContainerType, metadata.CreatedAt, metadata.UpdatedAt);
+            metadata.ContainerType, metadata.CreatedAt, metadata.UpdatedAt, metadata.Origin,
+            metadata.ReviewedText, metadata.ReviewStatus, metadata.ReviewedAt, metadata.UserModifiedAt);
     }
 
     private static RectangleTextRegionGeometry RestoreRectangle(IReadOnlyList<ImagePoint> points)

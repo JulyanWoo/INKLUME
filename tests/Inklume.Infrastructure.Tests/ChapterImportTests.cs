@@ -235,9 +235,8 @@ public sealed class ChapterImportTests : IDisposable
         ProjectWorkspace workspace = await CreateWorkspaceAsync("Legacy schema project");
         string databasePath = workspace.DatabasePath;
         await ExecuteSqlAsync(databasePath,
-            "DROP TABLE TextRegionPoints; DROP TABLE TextRegions; DROP TABLE Pages; DROP TABLE Chapters; " +
-            "DELETE FROM __EFMigrationsHistory WHERE MigrationId LIKE '%AddVisualEditorFoundation' " +
-            "OR MigrationId LIKE '%AddChaptersAndPages';");
+            "DROP TABLE IF EXISTS OcrRecognitions; DROP TABLE IF EXISTS TextRegionPoints; DROP TABLE IF EXISTS TextRegions; DROP TABLE IF EXISTS Pages; DROP TABLE IF EXISTS Chapters; " +
+            "DELETE FROM __EFMigrationsHistory WHERE MigrationId NOT LIKE '%InitialProject';");
 
         ProjectWorkspace reopened = await _projectStore.OpenAsync(
             workspace.SourceRoot, TestContext.Current.CancellationToken);

@@ -20,5 +20,15 @@ internal sealed class TextRegionMetadata
 
     public DateTimeOffset UpdatedAt { get; set; }
 
+    public TextRegionOrigin Origin { get; set; }
+
+    public string? ReviewedText { get; set; }
+
+    public TextRegionReviewStatus ReviewStatus { get; set; }
+
+    public DateTimeOffset? ReviewedAt { get; set; }
+
+    public DateTimeOffset? UserModifiedAt { get; set; }
+
     public List<TextRegionPointMetadata> Points { get; set; } = [];
 }

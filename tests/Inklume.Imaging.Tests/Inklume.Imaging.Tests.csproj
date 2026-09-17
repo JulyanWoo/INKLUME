@@ -12,5 +12,7 @@
     </ItemGroup>
     <ItemGroup>
         <ProjectReference Include="..\..\src\Inklume.Imaging\Inklume.Imaging.csproj" />
+        <ProjectReference Include="..\..\src\Inklume.Application\Inklume.Application.csproj" />
+        <ProjectReference Include="..\..\src\Inklume.Domain\Inklume.Domain.csproj" />
     </ItemGroup>
 </Project>

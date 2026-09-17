@@ -4,9 +4,9 @@ namespace Inklume.Desktop.VisualEditor;
 
 public sealed class ViewportTransform
 {
-    public const double MinimumInteractiveZoom = 0.30;
-    public const double MaximumZoom = 2.00;
-    private const double MinimumFitZoom = 0.01;
+    public const double MinimumInteractiveZoom = 0.10;
+    public const double MaximumZoom = 64.00;
+    private const double MinimumFitZoom = 0.0001;
     private const double VisibleMargin = 48;
 
     private ViewportTransform(

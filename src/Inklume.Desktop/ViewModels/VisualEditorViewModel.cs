@@ -19,6 +19,9 @@ public sealed partial class VisualEditorViewModel : ObservableObject
     private readonly ChapterService _chapterService;
     private readonly TextRegionService _textRegionService;
     private readonly IPagePreviewLoader _previewLoader;
+    private readonly OcrService? _ocrService;
+    private Dictionary<Guid, OcrRecognition> _ocrRecognitions = [];
+    private CancellationTokenSource? _ocrCancellation;
     private ViewportTransform? _viewportTransform;
     private int _genericImageWidth;
     private int _genericImageHeight;
@@ -32,6 +35,7 @@ public sealed partial class VisualEditorViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsGenericPreview))]
     [NotifyPropertyChangedFor(nameof(ImageWidth))]
     [NotifyPropertyChangedFor(nameof(ImageHeight))]
+    [NotifyCanExecuteChangedFor(nameof(RunPageOcrCommand))]
     private PageWorkspace? _selectedPage;
 
     [ObservableProperty]
@@ -53,11 +57,21 @@ public sealed partial class VisualEditorViewModel : ObservableObject
     [ObservableProperty]
     private string _statusMessage = string.Empty;
 
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RunPageOcrCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CancelOcrCommand))]
+    private bool _isOcrRunning;
+
+    [ObservableProperty]
+    private string _ocrProgressMessage = string.Empty;
+
     public VisualEditorViewModel(
         ProjectWorkspace workspace,
         ChapterService chapterService,
         TextRegionService textRegionService,
-        IPagePreviewLoader previewLoader)
+        IPagePreviewLoader previewLoader,
+        OcrService? ocrService = null,
+        TextRegionReviewService? reviewService = null)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(chapterService);
@@ -67,6 +81,14 @@ public sealed partial class VisualEditorViewModel : ObservableObject
         _chapterService = chapterService;
         _textRegionService = textRegionService;
         _previewLoader = previewLoader;
+        _ocrService = ocrService;
+
+        var actualReviewService = reviewService ?? new TextRegionReviewService(
+            new Inklume.Infrastructure.TextRegions.SqliteTextRegionStore(),
+            new Inklume.Infrastructure.TextRegions.SqliteOcrStore(),
+            TimeProvider.System);
+        Review = new RegionReviewViewModel(this, actualReviewService, textRegionService, ocrService);
+
         SelectToolCommand = new RelayCommand(() => SelectedTool = VisualEditorTool.Select);
         RectangleToolCommand = new RelayCommand(
             () => SelectedTool = VisualEditorTool.RectangleRegion,
@@ -74,12 +96,45 @@ public sealed partial class VisualEditorViewModel : ObservableObject
         PolygonToolCommand = new RelayCommand(
             () => SelectedTool = VisualEditorTool.PolygonRegion,
             () => IsEditingEnabled);
-        ZoomInCommand = new RelayCommand(ZoomIn, () => ZoomScale < ViewportTransform.MaximumZoom);
-        ZoomOutCommand = new RelayCommand(ZoomOut, () => ZoomScale > ViewportTransform.MinimumInteractiveZoom);
+        ZoomInCommand = new RelayCommand(ZoomIn, () => ZoomScale < ViewportTransform.MaximumZoom - 0.0001);
+        ZoomOutCommand = new RelayCommand(ZoomOut, () => ZoomScale > ViewportTransform.MinimumInteractiveZoom + 0.0001);
         ResetZoomCommand = new RelayCommand(ResetZoom, () => _viewportTransform is not null);
         FitToViewCommand = new RelayCommand(FitToView, () => _viewportTransform is not null);
         DeleteSelectedRegionCommand = new AsyncRelayCommand(
             DeleteSelectedRegionAsync, () => IsEditingEnabled && SelectedRegion is not null);
+        RunPageOcrCommand = new AsyncRelayCommand(RunPageOcrAsync, CanRunPageOcr);
+        CancelOcrCommand = new RelayCommand(CancelOcr, () => IsOcrRunning);
+    }
+
+    public RegionReviewViewModel Review { get; }
+
+    public ProjectWorkspace Workspace => _workspace;
+
+    public string SelectedRegionOcrText => Review.RawOcrText;
+
+    public string SelectedRegionOcrRecognitionConfidenceDisplay => Review.RecognitionConfidenceDisplay;
+
+    public string SelectedRegionOcrDetectionConfidenceDisplay => Review.DetectionConfidenceDisplay;
+
+    public string SelectedRegionOcrEngineDisplay => Review.EngineDisplay;
+
+    public string SelectedRegionOcrModelDisplay => Review.ModelDisplay;
+
+    public string SelectedRegionOcrProfileDisplay => Review.ProfileDisplay;
+
+    public bool HasSelectedRegionOcr => Review.HasOcr;
+
+    public string SelectedRegionOriginDisplay => Review.OriginDisplay;
+
+    public IAsyncRelayCommand RecognizeSelectedRegionCommand => Review.RecognizeRegionCommand;
+
+    public bool TryGetRecognition(Guid regionId, out OcrRecognition? recognition)
+        => _ocrRecognitions.TryGetValue(regionId, out recognition);
+
+    public void SetRegionRecognition(Guid regionId, OcrRecognition recognition)
+    {
+        _ocrRecognitions[regionId] = recognition;
+        Review.NotifyOcrChanged();
     }
 
     public ObservableCollection<TextRegion> TextRegions { get; } = [];
@@ -123,7 +178,7 @@ public sealed partial class VisualEditorViewModel : ObservableObject
 
     public double ZoomScale => _viewportTransform?.Zoom ?? 1;
 
-    public string ZoomPercentDisplay => $"{Math.Round(ZoomScale * 100):0}%";
+    public string ZoomPercentDisplay => $"{Math.Round(ZoomScale * 100, 1):0.#}%";
 
     public double ViewportOffsetX => _viewportTransform?.OffsetX ?? 0;
 
@@ -144,6 +199,10 @@ public sealed partial class VisualEditorViewModel : ObservableObject
     public IRelayCommand FitToViewCommand { get; }
 
     public IAsyncRelayCommand DeleteSelectedRegionCommand { get; }
+
+    public IAsyncRelayCommand RunPageOcrCommand { get; }
+
+    public IRelayCommand CancelOcrCommand { get; }
 
     public async Task<PageWorkspace> LoadPageAsync(
         PageWorkspace page,
@@ -177,6 +236,26 @@ public sealed partial class VisualEditorViewModel : ObservableObject
             TextRegions.Add(region);
         }
 
+        if (_ocrService is not null)
+        {
+            try
+            {
+                IReadOnlyDictionary<Guid, OcrRecognition> recognitions = await _ocrService.GetRecognitionsForPageAsync(
+                    _workspace, resolved.Page.Id, cancellationToken);
+                _ocrRecognitions = new Dictionary<Guid, OcrRecognition>(recognitions);
+            }
+            catch
+            {
+                _ocrRecognitions = [];
+            }
+        }
+        else
+        {
+            _ocrRecognitions = [];
+        }
+
+        Review.NotifyOcrChanged();
+        Review.OnRegionsChanged();
         OnPropertyChanged(nameof(GenericImageFilePath));
         OnPropertyChanged(nameof(IsGenericPreview));
         NotifyViewportChanged();
@@ -205,6 +284,9 @@ public sealed partial class VisualEditorViewModel : ObservableObject
             ? ViewportTransform.Fit(preview.RawPixelWidth, preview.RawPixelHeight, _viewportWidth, _viewportHeight)
             : null;
         TextRegions.Clear();
+        _ocrRecognitions.Clear();
+        Review.NotifyOcrChanged();
+        Review.OnRegionsChanged();
 
         OnPropertyChanged(nameof(GenericImageFilePath));
         OnPropertyChanged(nameof(IsGenericPreview));
@@ -228,6 +310,9 @@ public sealed partial class VisualEditorViewModel : ObservableObject
         _genericImageHeight = 0;
         Preview = null;
         TextRegions.Clear();
+        _ocrRecognitions.Clear();
+        Review.NotifyOcrChanged();
+        Review.OnRegionsChanged();
         ErrorMessage = string.Empty;
         StatusMessage = string.Empty;
         OnPropertyChanged(nameof(GenericImageFilePath));
@@ -268,8 +353,10 @@ public sealed partial class VisualEditorViewModel : ObservableObject
             return;
         }
 
-        double factor = wheelDelta > 0 ? 1.1 : 1 / 1.1;
-        _viewportTransform = transform.ZoomAt(cursor, transform.Zoom * factor);
+        double targetZoom = wheelDelta > 0
+            ? ZoomLevels.GetNextZoomIn(transform.Zoom)
+            : ZoomLevels.GetNextZoomOut(transform.Zoom);
+        _viewportTransform = transform.ZoomAt(cursor, targetZoom);
         NotifyViewportChanged();
     }
 
@@ -329,12 +416,49 @@ public sealed partial class VisualEditorViewModel : ObservableObject
 
     public void SelectRegion(TextRegion? region)
     {
-        if (region is not null && !TextRegions.Contains(region))
+        if (region is not null)
         {
-            throw new ArgumentException("The region does not belong to the selected page.", nameof(region));
+            TextRegion? matched = TextRegions.FirstOrDefault(r => r.Id == region.Id);
+            if (matched is null)
+            {
+                throw new ArgumentException("The region does not belong to the selected page.", nameof(region));
+            }
+
+            region = matched;
+        }
+
+        if (Review.IsReviewTextDirty)
+        {
+            _ = Review.CommitDraftIfDirtyAsync();
         }
 
         SelectedRegion = region;
+    }
+
+    public async Task<bool> SelectRegionAsync(TextRegion? region)
+    {
+        if (region is not null)
+        {
+            TextRegion? matched = TextRegions.FirstOrDefault(r => r.Id == region.Id);
+            if (matched is null)
+            {
+                throw new ArgumentException("The region does not belong to the selected page.", nameof(region));
+            }
+
+            region = matched;
+        }
+
+        if (Review.IsReviewTextDirty)
+        {
+            bool committed = await Review.CommitDraftIfDirtyAsync();
+            if (!committed)
+            {
+                return false;
+            }
+        }
+
+        SelectedRegion = region;
+        return true;
     }
 
     public async Task UpdateSelectedClassificationAsync(
@@ -371,7 +495,24 @@ public sealed partial class VisualEditorViewModel : ObservableObject
     }
 
     partial void OnSelectedRegionChanged(TextRegion? value)
-        => DeleteSelectedRegionCommand.NotifyCanExecuteChanged();
+    {
+        DeleteSelectedRegionCommand.NotifyCanExecuteChanged();
+        Review.OnSelectedRegionChanged(value);
+        NotifyOcrForwardingPropertiesChanged();
+    }
+
+    private void NotifyOcrForwardingPropertiesChanged()
+    {
+        OnPropertyChanged(nameof(SelectedRegionOcrText));
+        OnPropertyChanged(nameof(SelectedRegionOriginDisplay));
+        OnPropertyChanged(nameof(SelectedRegionOcrRecognitionConfidenceDisplay));
+        OnPropertyChanged(nameof(SelectedRegionOcrDetectionConfidenceDisplay));
+        OnPropertyChanged(nameof(SelectedRegionOcrEngineDisplay));
+        OnPropertyChanged(nameof(SelectedRegionOcrModelDisplay));
+        OnPropertyChanged(nameof(SelectedRegionOcrProfileDisplay));
+        OnPropertyChanged(nameof(HasSelectedRegionOcr));
+        OnPropertyChanged(nameof(RecognizeSelectedRegionCommand));
+    }
 
     private async Task<TextRegion> CreateRegionAsync(
         TextRegionGeometry geometry,
@@ -399,6 +540,7 @@ public sealed partial class VisualEditorViewModel : ObservableObject
         }
 
         await _textRegionService.DeleteAsync(_workspace, region);
+        _ocrRecognitions.Remove(region.Id);
         TextRegions.Remove(region);
         SelectedRegion = null;
         StatusMessage = $"Region {region.ReadingOrder} deleted.";
@@ -434,7 +576,8 @@ public sealed partial class VisualEditorViewModel : ObservableObject
         var center = new ViewportPoint(
             transform.ViewportWidth / 2,
             transform.ViewportHeight / 2);
-        _viewportTransform = transform.ZoomAt(center, transform.Zoom + 0.1);
+        double targetZoom = ZoomLevels.GetNextZoomIn(transform.Zoom);
+        _viewportTransform = transform.ZoomAt(center, targetZoom);
         NotifyViewportChanged();
     }
 
@@ -449,7 +592,8 @@ public sealed partial class VisualEditorViewModel : ObservableObject
         var center = new ViewportPoint(
             transform.ViewportWidth / 2,
             transform.ViewportHeight / 2);
-        _viewportTransform = transform.ZoomAt(center, transform.Zoom - 0.1);
+        double targetZoom = ZoomLevels.GetNextZoomOut(transform.Zoom);
+        _viewportTransform = transform.ZoomAt(center, targetZoom);
         NotifyViewportChanged();
     }
 
@@ -497,5 +641,73 @@ public sealed partial class VisualEditorViewModel : ObservableObject
         ZoomOutCommand.NotifyCanExecuteChanged();
         ResetZoomCommand.NotifyCanExecuteChanged();
         FitToViewCommand.NotifyCanExecuteChanged();
+    }
+
+    private bool CanRunPageOcr()
+        => HasPage && !IsGenericPreview && !IsOcrRunning && _ocrService is not null;
+
+    private async Task RunPageOcrAsync()
+    {
+        if (SelectedPage is null || _ocrService is null)
+        {
+            return;
+        }
+
+        using var cancellation = new CancellationTokenSource();
+        _ocrCancellation = cancellation;
+        IsOcrRunning = true;
+        OcrProgressMessage = "Analyzing page with PaddleOCR...";
+        ErrorMessage = string.Empty;
+        NotifyOcrCommandsCanExecuteChanged();
+
+        try
+        {
+            IReadOnlyList<TextRegion> updatedRegions = await _ocrService.AnalyzePageAsync(
+                _workspace, SelectedPage.Page.Id, cancellation.Token);
+            TextRegions.Clear();
+            foreach (TextRegion region in updatedRegions)
+            {
+                TextRegions.Add(region);
+            }
+
+            IReadOnlyDictionary<Guid, OcrRecognition> recognitions = await _ocrService.GetRecognitionsForPageAsync(
+                _workspace, SelectedPage.Page.Id, cancellation.Token);
+            _ocrRecognitions = new Dictionary<Guid, OcrRecognition>(recognitions);
+            SelectedRegion = null;
+            StatusMessage = $"OCR completed: {updatedRegions.Count} region(s) detected.";
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            StatusMessage = "OCR cancelled.";
+        }
+        catch (ProjectOperationException exception)
+        {
+            ErrorMessage = exception.Message;
+            StatusMessage = "OCR failed.";
+        }
+        catch (Exception)
+        {
+            ErrorMessage = "An unexpected error occurred during OCR.";
+            StatusMessage = "OCR failed.";
+        }
+        finally
+        {
+            _ocrCancellation = null;
+            IsOcrRunning = false;
+            OcrProgressMessage = string.Empty;
+            NotifyOcrCommandsCanExecuteChanged();
+        }
+    }
+
+    private void CancelOcr()
+    {
+        _ocrCancellation?.Cancel();
+    }
+
+    private void NotifyOcrCommandsCanExecuteChanged()
+    {
+        RunPageOcrCommand.NotifyCanExecuteChanged();
+        Review.RecognizeRegionCommand.NotifyCanExecuteChanged();
+        CancelOcrCommand.NotifyCanExecuteChanged();
     }
 }

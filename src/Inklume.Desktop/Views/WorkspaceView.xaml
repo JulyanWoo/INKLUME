@@ -230,7 +230,8 @@
                     </StackPanel>
 
                     <!-- Text Region Inspector -->
-                    <StackPanel DataContext="{Binding VisualEditor}">
+                    <!-- Text Region Inspector -->
+                    <StackPanel DataContext="{Binding VisualEditor.Review}">
                         <StackPanel.Style>
                             <Style TargetType="StackPanel">
                                 <Setter Property="Visibility" Value="Collapsed" />
@@ -241,32 +242,235 @@
                                 </Style.Triggers>
                             </Style>
                         </StackPanel.Style>
-                        <TextBlock Text="Text Region" Style="{DynamicResource SectionTitleTextStyle}" Margin="0,0,0,16" />
-                        <TextBlock Text="Reading order" Style="{DynamicResource CaptionTextStyle}" />
-                        <TextBlock Text="{Binding SelectedRegion.ReadingOrder}" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,2,0,11" />
-                        <TextBlock Text="Geometry" Style="{DynamicResource CaptionTextStyle}" />
-                        <TextBlock Text="{Binding SelectedRegion.Geometry.Kind}" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,2,0,11" />
-                        <TextBlock Text="Point count" Style="{DynamicResource CaptionTextStyle}" />
-                        <TextBlock Text="{Binding SelectedRegion.Geometry.Points.Count}" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,2,0,11" />
-                        <TextBlock Text="Bounds (x, y, width x height)" Style="{DynamicResource CaptionTextStyle}" />
-                        <TextBlock Text="{Binding SelectedRegionBoundsDisplay}" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,2,0,11" TextWrapping="Wrap" />
+
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Text Region" Style="{DynamicResource SectionTitleTextStyle}" VerticalAlignment="Center" />
+                            <Border Grid.Column="1" Background="{DynamicResource CardHoverBackgroundBrush}" CornerRadius="3" Padding="6,2">
+                                <TextBlock Text="{Binding PageReviewProgressDisplay}" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" />
+                            </Border>
+                        </Grid>
+
+                        <!-- Reading order navigation and move -->
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                            <ui:Button Content="◀ Prev" Appearance="Secondary" Command="{Binding SelectPreviousRegionCommand}" ToolTip="Previous region in reading order" Margin="0,0,4,0" Padding="8,4" />
+                            <ui:Button Content="Next ▶" Appearance="Secondary" Command="{Binding SelectNextRegionCommand}" ToolTip="Next region in reading order" Margin="0,0,6,0" Padding="8,4" />
+                            <ui:Button Content="▲ Move Up" Appearance="Secondary" Command="{Binding MoveUpCommand}" ToolTip="Move up in reading order" Margin="0,0,4,0" Padding="8,4" />
+                            <ui:Button Content="▼ Move Down" Appearance="Secondary" Command="{Binding MoveDownCommand}" ToolTip="Move down in reading order" Padding="8,4" />
+                        </StackPanel>
+
+                        <!-- Region Metadata -->
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Reading order" Style="{DynamicResource CaptionTextStyle}" />
+                                <TextBlock Text="{Binding ReadingOrder}" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,2,0,0" FontWeight="SemiBold" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="Origin" Style="{DynamicResource CaptionTextStyle}" />
+                                <TextBlock Text="{Binding OriginDisplay}" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,2,0,0" />
+                            </StackPanel>
+                        </Grid>
+
+                        <TextBlock Text="Bounds (x, y, w x h)" Style="{DynamicResource CaptionTextStyle}" />
+                        <TextBlock Text="{Binding BoundsDisplay}" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,2,0,8" TextWrapping="Wrap" />
+
                         <TextBlock Text="Role" Style="{DynamicResource CaptionTextStyle}" />
                         <ComboBox x:Name="RegionRoleSelector"
                                   ItemsSource="{Binding Roles}"
                                   SelectedItem="{Binding SelectedRegion.Role, Mode=OneWay}"
                                   SelectionChanged="OnRegionClassificationChanged"
-                                  Margin="0,3,0,11" />
+                                  Margin="0,3,0,8" />
+
                         <TextBlock Text="Container type" Style="{DynamicResource CaptionTextStyle}" />
                         <ComboBox x:Name="RegionContainerSelector"
                                   ItemsSource="{Binding ContainerTypes}"
                                   SelectedItem="{Binding SelectedRegion.ContainerType, Mode=OneWay}"
                                   SelectionChanged="OnRegionClassificationChanged"
-                                  Margin="0,3,0,11" />
-                        <ui:Button Content="Delete Region"
-                                   Appearance="Secondary"
-                                   Command="{Binding DeleteSelectedRegionCommand}"
-                                   HorizontalAlignment="Left"
-                                   Margin="0,5,0,0" />
+                                  Margin="0,3,0,10" />
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                            <ui:Button Content="Recognize Region"
+                                       Appearance="Secondary"
+                                       Command="{Binding RecognizeRegionCommand}"
+                                       ToolTip="Recognize text in this region with OCR"
+                                       Margin="0,0,6,0" />
+                            <ui:Button Content="Delete Region"
+                                       Appearance="Secondary"
+                                       Command="{Binding DataContext.VisualEditor.DeleteSelectedRegionCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                        </StackPanel>
+
+                        <!-- SOURCE TEXT REVIEW (Part E) -->
+                        <Border Background="{DynamicResource CardHoverBackgroundBrush}"
+                                CornerRadius="{StaticResource CornerSmall}"
+                                Padding="10"
+                                Margin="0,0,0,10">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="SOURCE TEXT REVIEW"
+                                               Style="{DynamicResource CaptionTextStyle}"
+                                               FontWeight="SemiBold"
+                                               VerticalAlignment="Center" />
+                                    <Border Grid.Column="1" CornerRadius="3" Padding="6,2" Background="{DynamicResource TopBarBackgroundBrush}">
+                                        <TextBlock Text="{Binding ReviewStatusDisplay}"
+                                                   FontSize="10"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}" />
+                                    </Border>
+                                </Grid>
+
+                                <!-- Mark Reviewed / Pending actions -->
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                    <ui:Button Content="Mark Reviewed" Appearance="Primary" Command="{Binding MarkReviewedCommand}" Margin="0,0,6,0" Padding="8,3" FontSize="11" />
+                                    <ui:Button Content="Mark Pending" Appearance="Secondary" Command="{Binding MarkPendingCommand}" Padding="8,3" FontSize="11" />
+                                </StackPanel>
+
+                                <!-- Raw OCR Text (Read-Only) -->
+                                <TextBlock Text="Raw OCR" Style="{DynamicResource CaptionTextStyle}" />
+                                <TextBox Text="{Binding RawOcrText, Mode=OneWay}"
+                                         IsReadOnly="True"
+                                         TextWrapping="Wrap"
+                                         AcceptsReturn="True"
+                                         MaxHeight="65"
+                                         VerticalScrollBarVisibility="Auto"
+                                         Margin="0,2,0,8"
+                                         Padding="4"
+                                         FontSize="12"
+                                         Foreground="{DynamicResource TextSecondaryBrush}" />
+
+                                <!-- Reviewed Text Editor (Editable) -->
+                                <Grid Margin="0,0,0,2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Reviewed source text" Style="{DynamicResource CaptionTextStyle}" />
+                                    <TextBlock Grid.Column="1" Text="* Unsaved" Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}" FontSize="10">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsReviewTextDirty}" Value="True">
+                                                        <Setter Property="Visibility" Value="Visible" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </Grid>
+                                <TextBox x:Name="ReviewedTextBox"
+                                         Text="{Binding ReviewedTextDraft, UpdateSourceTrigger=PropertyChanged}"
+                                         AcceptsReturn="True"
+                                         TextWrapping="Wrap"
+                                         MinHeight="60"
+                                         MaxHeight="120"
+                                         VerticalScrollBarVisibility="Auto"
+                                         Margin="0,0,0,8"
+                                         Padding="4"
+                                         FontSize="12"
+                                         PreviewKeyDown="OnReviewedTextBoxPreviewKeyDown" />
+
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                    <ui:Button Content="Save (Ctrl+Enter)"
+                                               Appearance="Primary"
+                                               Command="{Binding SaveReviewedTextCommand}"
+                                               IsEnabled="{Binding IsReviewTextDirty}"
+                                               Margin="0,0,6,0"
+                                               Padding="8,3"
+                                               FontSize="11" />
+                                    <ui:Button Content="Reset to OCR"
+                                               Appearance="Secondary"
+                                               Command="{Binding ResetReviewedTextCommand}"
+                                               Padding="8,3"
+                                               FontSize="11" />
+                                </StackPanel>
+
+                                <TextBlock Text="Effective source text" Style="{DynamicResource CaptionTextStyle}" />
+                                <TextBlock Text="{Binding EffectiveSourceTextDisplay}"
+                                           Foreground="{DynamicResource TextPrimaryBrush}"
+                                           FontSize="11"
+                                           TextWrapping="Wrap"
+                                           Margin="0,2,0,0" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- OCR METADATA (Part M) -->
+                        <Border Background="{DynamicResource CardHoverBackgroundBrush}"
+                                CornerRadius="{StaticResource CornerSmall}"
+                                Padding="10"
+                                Margin="0,0,0,0">
+                            <StackPanel>
+                                <TextBlock Text="OCR DETAILS"
+                                           Style="{DynamicResource CaptionTextStyle}"
+                                           FontWeight="SemiBold"
+                                           Margin="0,0,0,8" />
+                                <TextBlock Text="No OCR data available."
+                                           Foreground="{DynamicResource TextMutedBrush}">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock" BasedOn="{StaticResource CaptionTextStyle}">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding HasOcr}" Value="False">
+                                                    <Setter Property="Visibility" Value="Visible" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                                <StackPanel>
+                                    <StackPanel.Style>
+                                        <Style TargetType="StackPanel">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding HasOcr}" Value="False">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </StackPanel.Style>
+                                    <Grid Margin="0,0,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0">
+                                            <TextBlock Text="Rec. Confidence" Style="{DynamicResource CaptionTextStyle}" />
+                                            <TextBlock Text="{Binding RecognitionConfidenceDisplay}"
+                                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                                       FontSize="11" Margin="0,1,0,6" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Text="Det. Confidence" Style="{DynamicResource CaptionTextStyle}" />
+                                            <TextBlock Text="{Binding DetectionConfidenceDisplay}"
+                                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                                       FontSize="11" Margin="0,1,0,6" />
+                                        </StackPanel>
+                                    </Grid>
+                                    <TextBlock Text="Engine" Style="{DynamicResource CaptionTextStyle}" />
+                                    <TextBlock Text="{Binding EngineDisplay}"
+                                               Foreground="{DynamicResource TextPrimaryBrush}"
+                                               FontSize="11" Margin="0,1,0,6" />
+                                    <TextBlock Text="Recognition Model" Style="{DynamicResource CaptionTextStyle}" />
+                                    <TextBlock Text="{Binding ModelDisplay}"
+                                               Foreground="{DynamicResource TextPrimaryBrush}"
+                                               FontSize="11" Margin="0,1,0,6" TextWrapping="Wrap" />
+                                    <TextBlock Text="Model Profile" Style="{DynamicResource CaptionTextStyle}" />
+                                    <TextBlock Text="{Binding ProfileDisplay}"
+                                               Foreground="{DynamicResource TextPrimaryBrush}"
+                                               FontSize="11" Margin="0,1,0,2" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
 
                     <!-- Candidate Folder Inspector Panel -->

@@ -15,5 +15,12 @@ public enum ProjectErrorCode
     InvalidImage,
     DuplicateChapter,
     ImportFailure,
-    InvalidRegion
+    InvalidRegion,
+    OcrRuntimeUnavailable,
+    OcrModelUnavailable,
+    OcrSourceMissing,
+    OcrProviderFailure,
+    OcrInvalidResult,
+    OcrCancelled,
+    OcrDimensionsUnavailable
 }

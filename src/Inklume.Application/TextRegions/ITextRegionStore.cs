@@ -22,5 +22,12 @@ public interface ITextRegionStore
 
     Task UpdateAsync(ProjectWorkspace workspace, TextRegion region, CancellationToken cancellationToken);
 
+    Task ReorderPageRegionsAsync(
+        ProjectWorkspace workspace,
+        Guid pageId,
+        IReadOnlyList<Guid> orderedRegionIds,
+        DateTimeOffset userModifiedAt,
+        CancellationToken cancellationToken);
+
     Task DeleteAsync(ProjectWorkspace workspace, Guid regionId, CancellationToken cancellationToken);
 }

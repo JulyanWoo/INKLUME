@@ -107,7 +107,7 @@ public partial class WorkspaceView : UserControl
         try
         {
             _isClassificationUpdatePending = true;
-            await workspace.VisualEditor.UpdateSelectedClassificationAsync(role, containerType);
+            await workspace.VisualEditor.Review.UpdateClassificationAsync(role, containerType);
         }
         catch (Exception exception)
         {
@@ -116,6 +116,18 @@ public partial class WorkspaceView : UserControl
         finally
         {
             _isClassificationUpdatePending = false;
+        }
+    }
+
+    private async void OnReviewedTextBoxPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+        {
+            e.Handled = true;
+            if (DataContext is WorkspaceViewModel workspace)
+            {
+                await workspace.VisualEditor.Review.SaveReviewedTextAsync();
+            }
         }
     }
 }

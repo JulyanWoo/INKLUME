@@ -2,4 +2,8 @@
     <PropertyGroup>
         <TargetFramework>net10.0</TargetFramework>
     </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\Inklume.Domain\Inklume.Domain.csproj" />
+        <ProjectReference Include="..\Inklume.Application\Inklume.Application.csproj" />
+    </ItemGroup>
 </Project>

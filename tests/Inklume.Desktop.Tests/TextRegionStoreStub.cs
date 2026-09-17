@@ -47,4 +47,24 @@ internal sealed class TextRegionStoreStub : ITextRegionStore
         _regions.RemoveAll(region => region.Id == regionId);
         return Task.CompletedTask;
     }
+
+    public Task ReorderPageRegionsAsync(
+        ProjectWorkspace workspace,
+        Guid pageId,
+        IReadOnlyList<Guid> regionIdsInOrder,
+        DateTimeOffset updatedAt,
+        CancellationToken cancellationToken)
+    {
+        for (int i = 0; i < regionIdsInOrder.Count; i++)
+        {
+            Guid id = regionIdsInOrder[i];
+            int index = _regions.FindIndex(item => item.Id == id && item.PageId == pageId);
+            if (index >= 0)
+            {
+                _regions[index] = _regions[index].WithReadingOrder(i + 1, updatedAt);
+            }
+        }
+
+        return Task.CompletedTask;
+    }
 }

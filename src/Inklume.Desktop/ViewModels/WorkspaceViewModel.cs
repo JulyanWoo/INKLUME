@@ -102,7 +102,9 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         ILocalChapterSourceProvider localChapterSourceProvider,
         IProjectDialogService dialogService,
         TextRegionService textRegionService,
-        IPagePreviewLoader previewLoader)
+        IPagePreviewLoader previewLoader,
+        OcrService? ocrService = null,
+        TextRegionReviewService? reviewService = null)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(chapterService);
@@ -124,7 +126,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         };
 
         VisualEditor = new VisualEditorViewModel(
-            Workspace, chapterService, textRegionService, previewLoader);
+            Workspace, chapterService, textRegionService, previewLoader, ocrService, reviewService);
         VisualEditor.PropertyChanged += OnVisualEditorPropertyChanged;
 
         ImportChapterCommand = new AsyncRelayCommand(() => ImportChapterWithFolderAsync(null), () => IsIdle);

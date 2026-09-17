@@ -23,6 +23,7 @@ public partial class VisualEditorView : UserControl
     private bool _isPanning;
     private bool _isSpacePressed;
     private bool _overlayRefreshPending;
+    private bool _editorUsedAltModifier;
 
     public VisualEditorView()
     {
@@ -151,7 +152,25 @@ public partial class VisualEditorView : UserControl
             _viewModel.ZoomScale,
             _viewModel.ViewportOffsetX,
             _viewModel.ViewportOffsetY);
+        UpdateBitmapScalingMode(_viewModel.ZoomScale);
         RedrawOverlays();
+    }
+
+    private void UpdateBitmapScalingMode(double zoomScale)
+    {
+        if (PageImage is null)
+        {
+            return;
+        }
+
+        BitmapScalingMode targetMode = zoomScale > 2.0
+            ? BitmapScalingMode.NearestNeighbor
+            : BitmapScalingMode.Linear;
+
+        if (RenderOptions.GetBitmapScalingMode(PageImage) != targetMode)
+        {
+            RenderOptions.SetBitmapScalingMode(PageImage, targetMode);
+        }
     }
 
     private void OnViewportMouseDown(object sender, MouseButtonEventArgs e)
@@ -162,6 +181,10 @@ public partial class VisualEditorView : UserControl
         }
 
         Viewport.Focus();
+        if ((Keyboard.Modifiers & ModifierKeys.Alt) != 0)
+        {
+            _editorUsedAltModifier = true;
+        }
         Point viewportPoint = e.GetPosition(Viewport);
         if (e.ChangedButton == MouseButton.Middle
             || (e.ChangedButton == MouseButton.Left && _isSpacePressed))
@@ -219,6 +242,10 @@ public partial class VisualEditorView : UserControl
         Point viewportPoint = e.GetPosition(Viewport);
         if (_isPanning)
         {
+            if ((Keyboard.Modifiers & ModifierKeys.Alt) != 0)
+            {
+                _editorUsedAltModifier = true;
+            }
             _viewModel.PanBy(viewportPoint.X - _lastPanPoint.X, viewportPoint.Y - _lastPanPoint.Y);
             _lastPanPoint = viewportPoint;
             e.Handled = true;
@@ -280,17 +307,36 @@ public partial class VisualEditorView : UserControl
             return;
         }
 
-        if ((Keyboard.Modifiers & ModifierKeys.Control) != 0)
+        if (!Viewport.IsKeyboardFocused)
         {
+            Viewport.Focus();
+        }
+
+        ModifierKeys modifiers = Keyboard.Modifiers;
+        bool hasShift = (modifiers & ModifierKeys.Shift) != 0;
+        bool hasControl = (modifiers & ModifierKeys.Control) != 0;
+        bool hasAlt = (modifiers & ModifierKeys.Alt) != 0;
+
+        if (hasAlt)
+        {
+            _editorUsedAltModifier = true;
+        }
+
+        if (hasShift)
+        {
+            // Shift + MouseWheel and Ctrl + Shift + MouseWheel: horizontal pan
+            // Shift takes precedence over zoom so Ctrl+Shift+Wheel is an unambiguous horizontal pan
+            _viewModel.PanBy(e.Delta / 3d, 0);
+        }
+        else if (hasControl)
+        {
+            // Ctrl + MouseWheel: zoom toward cursor
             Point cursor = e.GetPosition(Viewport);
             _viewModel.ZoomAt(new ViewportPoint(cursor.X, cursor.Y), e.Delta);
         }
-        else if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
-        {
-            _viewModel.PanBy(e.Delta / 3d, 0);
-        }
         else
         {
+            // Plain MouseWheel: vertical pan / scroll
             _viewModel.PanBy(0, e.Delta / 3d);
         }
 
@@ -299,7 +345,7 @@ public partial class VisualEditorView : UserControl
 
     private async void OnViewportKeyDown(object sender, KeyEventArgs e)
     {
-        if (_viewModel is null)
+        if (_viewModel is null || e.OriginalSource is TextBox)
         {
             return;
         }
@@ -313,6 +359,13 @@ public partial class VisualEditorView : UserControl
             }
 
             e.Handled = true;
+        }
+        else if (e.Key == Key.System || e.SystemKey is Key.LeftAlt or Key.RightAlt)
+        {
+            if ((Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift)) != 0)
+            {
+                _editorUsedAltModifier = true;
+            }
         }
         else if (e.Key == Key.Escape)
         {
@@ -342,6 +395,26 @@ public partial class VisualEditorView : UserControl
 
     private void OnViewportKeyUp(object sender, KeyEventArgs e)
     {
+        if (e.Key == Key.System || e.SystemKey is Key.LeftAlt or Key.RightAlt)
+        {
+            if (_editorUsedAltModifier)
+            {
+                _editorUsedAltModifier = false;
+                e.Handled = true;
+                return;
+            }
+        }
+
+        if (e.Key is Key.LeftCtrl or Key.RightCtrl or Key.LeftShift or Key.RightShift)
+        {
+            if (!Viewport.IsKeyboardFocused)
+            {
+                Viewport.Focus();
+            }
+
+            return;
+        }
+
         if (e.Key != Key.Space)
         {
             return;
